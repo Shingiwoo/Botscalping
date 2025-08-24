@@ -3,8 +3,17 @@
     "filters": {
       "atr": false,
       "body": false,
-      "min_atr_threshold": 0.00,
+      "min_atr_threshold": 0.0,
       "max_body_over_atr": 9.99
+    },
+    "adopt_manual_positions": 1,
+    "manual_guard": {
+      "place_sl_on_attach": 1,
+      "sl_on_attach_mode": "ATR",
+      "sl_on_attach_atr_mult": 1.6,
+      "sl_on_attach_pct": 0.012,
+      "sl_min_pct": 0.01,
+      "sl_max_pct": 0.03
     }
   },
   "ADAUSDT": {
@@ -44,7 +53,7 @@
       "weak_if_atr_pct_lt": 0.009,
       "weak_if_roi_future_lt": 0.15
     },
-    "weak_tp_roi_pct": 0.10,
+    "weak_tp_roi_pct": 0.1,
     "use_trailing_on_strong": 1,
     "use_breakeven": 1,
     "be_trigger_pct": 0.004,
@@ -111,7 +120,7 @@
       "weak_if_atr_pct_lt": 0.009,
       "weak_if_roi_future_lt": 0.15
     },
-    "weak_tp_roi_pct": 0.10,
+    "weak_tp_roi_pct": 0.1,
     "use_trailing_on_strong": 1,
     "use_breakeven": 1,
     "be_trigger_pct": 0.004,
@@ -172,8 +181,11 @@
       "score_threshold": 0.85
     },
     "tp_mode": "dual_strength",
-    "strength_rules": { "weak_if_atr_pct_lt": 0.008, "weak_if_roi_future_lt": 0.15 },
-    "weak_tp_roi_pct": 0.10,
+    "strength_rules": {
+      "weak_if_atr_pct_lt": 0.008,
+      "weak_if_roi_future_lt": 0.15
+    },
+    "weak_tp_roi_pct": 0.1,
     "use_trailing_on_strong": 1,
     "use_breakeven": 1,
     "be_trigger_pct": 0.004,
