@@ -39,6 +39,13 @@
       "down_prob_short": 0.45,
       "score_threshold": 1.0
     },
+    "tp_mode": "dual_strength",
+    "strength_rules": {
+      "weak_if_atr_pct_lt": 0.009,
+      "weak_if_roi_future_lt": 0.15
+    },
+    "weak_tp_roi_pct": 0.10,
+    "use_trailing_on_strong": 1,
     "use_breakeven": 1,
     "be_trigger_pct": 0.004,
     "be_min_gap_pct": 0.0001,
@@ -99,6 +106,13 @@
       "down_prob_short": 0.45,
       "score_threshold": 1.2
     },
+    "tp_mode": "dual_strength",
+    "strength_rules": {
+      "weak_if_atr_pct_lt": 0.009,
+      "weak_if_roi_future_lt": 0.15
+    },
+    "weak_tp_roi_pct": 0.10,
+    "use_trailing_on_strong": 1,
     "use_breakeven": 1,
     "be_trigger_pct": 0.004,
     "be_min_gap_pct": 0.0001,
@@ -133,9 +147,9 @@
     "taker_fee": 0.0005,
     "margin_type": "ISOLATED",
     "startup_skip_bars": 0,
-    "min_atr_pct": 0.0024,
-    "max_atr_pct": 0.04,
-    "max_body_atr": 1.75,
+    "min_atr_pct": 0.0020,
+    "max_atr_pct": 0.05,
+    "max_body_atr": 2.0,
     "use_htf_filter": 0,
     "cooldown_seconds": 900,
     "sl_mode": "ATR",
@@ -154,11 +168,16 @@
       ]
     },
     "ml": {
-      "strict": true,
-      "up_prob_long": 0.55,
-      "down_prob_short": 0.45,
-      "score_threshold": 1.0
+      "strict": false,
+      "score_threshold": 0.90
     },
+    "tp_mode": "dual_strength",
+    "strength_rules": {
+      "weak_if_atr_pct_lt": 0.01,
+      "weak_if_roi_future_lt": 0.15
+    },
+    "weak_tp_roi_pct": 0.10,
+    "use_trailing_on_strong": 1,
     "use_breakeven": 1,
     "be_trigger_pct": 0.004,
     "be_min_gap_pct": 0.0001,

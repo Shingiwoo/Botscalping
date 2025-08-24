@@ -96,6 +96,7 @@ Contoh key penting per simbol (disederhanakan):
 * **Exit**: `sl_mode` (ATR/PCT), `sl_pct`/`sl_atr_mult`, `sl_min_pct`, `sl_max_pct`,
   `use_breakeven`, `be_trigger_pct`, `trailing_trigger`, `trailing_step`,
   `max_hold_seconds`, `min_roi_to_close_by_time`, `time_stop_only_if_loss`
+* **TP**: `tp_mode`, blok `strength_rules`, `weak_tp_roi_pct`, `use_trailing_on_strong`
 * **Presisi/Lot**: `stepSize`, `minQty`, `quantityPrecision`, `minNotional`
 * **ML**: blok `ml` + `score_threshold` (atau ENV `SCORE_THRESHOLD`)
 
@@ -117,6 +118,7 @@ Contoh key penting per simbol (disederhanakan):
   * **Breakeven** (naikkan SL ke harga masuk bila profit ≥ trigger).
   * **Trailing** (di‑arm hanya jika profit > buffer aman **fee+slip**).
   * **Time‑stop** (tutup bila durasi > `max_hold_seconds` & ROI ≥ minimum; atau aturan *loss only*).
+  * **TP dua mode**: sinyal lemah → TP tetap, sinyal kuat → trailing + BE.
 * **Money Management**: risk % pada balance dan leverage; normalisasi qty ke **LOT\_SIZE**.
 
 ---
