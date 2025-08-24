@@ -1,0 +1,82 @@
+services:
+  newrealtrading:
+    container_name: newrealtrading
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Jakarta}
+    command:
+      - python
+      - -u
+      - /app/newrealtrading.py
+      - --live
+      - --real-exec
+      - --symbols
+      - DOGEUSDT,XRPUSDT,ADAUSDT,NEIROUSDT,TURBOUSDT
+      - --interval
+      - 15m
+      - --coin_config
+      - /data/coin_config.json
+      - --instance-id
+      - ${INSTANCE_ID:-botA}
+      - --account-guard
+      - --verbose
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 512m
+    restart: unless-stopped
+    volumes:
+      - ./coin_config.json:/data/coin_config.json:ro
+      - ./logs:/app/logs
+
+
+  newrealtrading_testnet:
+    container_name: newrealtrading_testnet
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Jakarta}
+    command:
+      - python
+      - -u
+      - /app/newrealtrading.py
+      - --live
+      - --real-exec
+      - --testnet
+      - --symbols
+      - DOGEUSDT,XRPUSDT
+      - --interval
+      - 15m
+      - --coin_config
+      - /data/coin_config.json
+      - --instance-id
+      - ${INSTANCE_ID:-botTEST}
+      - --account-guard
+      - --verbose
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 512m
+    restart: unless-stopped
+    volumes:
+      - ./coin_config.json:/data/coin_config.json:ro
+      - ./logs:/app/logs

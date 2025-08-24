@@ -1,0 +1,582 @@
+
+import os
+import json
+import asyncio
+import time
+import math
+import logging
+from typing import Optional
+
+import pandas as pd
+import numpy as np
+from dotenv import load_dotenv
+from binance import AsyncClient, BinanceSocketManager
+from binance.enums import ORDER_TYPE_MARKET
+
+from ta.trend import EMAIndicator, SMAIndicator, MACD
+from ta.volatility import AverageTrueRange, BollingerBands
+from ta.momentum import RSIIndicator
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import StratifiedKFold
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("trading_bot.log"), logging.StreamHandler()]
+)
+logger = logging.getLogger('binance_future_scalping')
+
+# ===== Konfigurasi =====
+CONFIG_FILE = "coin_config.json"
+SYMBOLS = ['XRPUSDT', 'DOGEUSDT', 'TURBOUSDT']
+TIMEFRAME = '5m'
+
+# WS guards
+USE_MULTIPLEX = bool(int(os.getenv("USE_MULTIPLEX", "1")))
+WS_MAX_RETRY = int(os.getenv("WS_MAX_RETRY", "0"))
+WS_BACKOFF_BASE = float(os.getenv("WS_BACKOFF_BASE", "1.7"))
+WS_BACKOFF_MAX = float(os.getenv("WS_BACKOFF_MAX", "60"))
+WS_NO_MSG_TIMEOUT = int(os.getenv("WS_NO_MSG_TIMEOUT", "90"))
+
+# Capital allocation (tidak dipakai untuk size, karena size pakai available balance)
+RISK_PERCENTAGE = 0.8
+
+# Fees & ROI/Time Guards
+TAKER_FEE = float(os.getenv('TAKER_FEE', '0.0005'))
+MIN_ROI_TO_CLOSE_BY_TIME = float(os.getenv('MIN_ROI_TO_CLOSE_BY_TIME', '0.05'))
+MAX_HOLD_SECONDS = int(os.getenv('MAX_HOLD_SECONDS', '3600'))
+
+def floor_to_step(x: float, step: float) -> float:
+    if step <= 0:
+        return x
+    return math.floor(x / step) * step
+
+
+class CoinTrader:
+    def __init__(self, symbol: str, api_key: str, api_secret: str, capital_allocated: float, config: dict):
+        self.symbol = symbol
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.capital = capital_allocated  # tracking lokal
+        self.config = config
+
+        self.data = pd.DataFrame(columns=['timestamp','open','high','low','close','volume'])
+        self.model = RandomForestClassifier(n_estimators=100)
+        self.skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+
+        # state posisi
+        self.in_position = False
+        self.position_type: Optional[str] = None
+        self.entry_price: Optional[float] = None
+        self.stop_loss: Optional[float] = None
+        self.take_profit: Optional[float] = None
+        self.trailing_stop: Optional[float] = None
+        self.position_size: float = 0.0
+        self.hold_start_ts: Optional[float] = None
+
+        # koneksi
+        self.client: Optional[AsyncClient] = None
+        self.websocket = None
+        self.lock = asyncio.Lock()
+
+    def require_client(self) -> AsyncClient:
+        if self.client is None:
+            raise RuntimeError(f"Client not initialized for {self.symbol}")
+        return self.client
+
+    async def _get_available_balance(self) -> float:
+        try:
+            acc = await self.require_client().futures_account()
+            for a in acc['assets']:
+                if a['asset'] == 'USDT':
+                    return float(a['availableBalance'])
+        except Exception as e:
+            logger.error(f"{self.symbol} get balance failed: {e}")
+        return 0.0
+
+    async def _get_mark_price(self) -> Optional[float]:
+        try:
+            mp = await self.require_client().futures_mark_price(symbol=self.symbol)
+            return float(mp['markPrice'])
+        except Exception as e:
+            logger.error(f"{self.symbol} get mark price failed: {e}")
+            return None
+
+    async def _lot_info(self):
+        info = await self.require_client().futures_exchange_info()
+        s = next(item for item in info['symbols'] if item['symbol'] == self.symbol)
+        lot = next(f for f in s['filters'] if f['filterType'] in ('MARKET_LOT_SIZE','LOT_SIZE'))
+        step = float(lot.get('stepSize', '0'))
+        min_qty = float(lot.get('minQty', '0'))
+        qprec = s.get('quantityPrecision', 0)
+        return step, min_qty, qprec
+
+    async def initialize(self):
+        if self.client is None:
+            self.client = await AsyncClient.create(self.api_key, self.api_secret)
+
+        # set leverage
+        await self.require_client().futures_change_leverage(symbol=self.symbol, leverage=int(self.config['leverage']))
+
+        # load data
+        klines = await self.require_client().futures_klines(symbol=self.symbol, interval=TIMEFRAME, limit=500)
+        rows = []
+        for k in klines:
+            rows.append({'timestamp':k[0],'open':float(k[1]),'high':float(k[2]),'low':float(k[3]),'close':float(k[4]),'volume':float(k[5])})
+        self.data = pd.DataFrame(rows)
+        logger.info(f"{self.symbol} initialized with {len(self.data)} candles")
+
+    def calculate_indicators(self) -> pd.DataFrame:
+        df = self.data.copy()
+        if df.empty:
+            return df
+
+        # params
+        s = self.config
+        df['ema'] = EMAIndicator(df['close'], s['ema_period']).ema_indicator()
+        df['ma']  = SMAIndicator(df['close'], s['sma_period']).sma_indicator()
+        macd = MACD(df['close'])
+        df['macd'] = macd.macd()
+        df['macd_signal'] = macd.macd_signal()
+        df['rsi'] = RSIIndicator(df['close'], s['rsi_period']).rsi()
+        bb = BollingerBands(df['close'], window=20, window_dev=s['bb_std'])
+        df['bb_upper'] = bb.bollinger_hband()
+        df['bb_lower'] = bb.bollinger_lband()
+        df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['close']
+        df['atr'] = AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
+
+        # simple ML features
+        df['lag_ret'] = df['close'].pct_change().shift(1)
+        df['vol'] = df['close'].rolling(20).std().shift(1)
+        ml_df = df[['rsi','macd','atr','bb_width','lag_ret','vol']].dropna()
+        if not ml_df.empty:
+            target = (df['close'].shift(-5) > df['close']).astype(int).loc[ml_df.index]
+            if len(target) > 0:
+                preds = np.zeros(len(ml_df))
+                for tr,_ in self.skf.split(ml_df, target):
+                    self.model.fit(ml_df.iloc[tr], target.iloc[tr])
+                    preds[tr] = self.model.predict(ml_df.iloc[tr])
+                df['ml_signal'] = 0
+                df.loc[ml_df.index,'ml_signal'] = preds
+
+        df['long_signal'] = False
+        df['short_signal'] = False
+        if len(df) > 1:
+            i = len(df)-1
+            score_th = s['score_threshold']
+            # Long
+            sc = 0
+            if df['ema'].iloc[i] > df['ma'].iloc[i] and df['macd'].iloc[i] > df['macd_signal'].iloc[i]: sc += 1
+            if 40 < df['rsi'].iloc[i] < 70: sc += 0.5
+            if 'ml_signal' in df.columns and df['ml_signal'].iloc[i] == 1: sc += 1
+            if sc >= score_th: df.loc[i,'long_signal'] = True
+            # Short
+            sc = 0
+            if df['ema'].iloc[i] < df['ma'].iloc[i] and df['macd'].iloc[i] < df['macd_signal'].iloc[i]: sc += 1
+            if 30 < df['rsi'].iloc[i] < 60: sc += 0.5
+            if 'ml_signal' in df.columns and df['ml_signal'].iloc[i] == 0: sc += 1
+            if sc >= score_th: df.loc[i,'short_signal'] = True
+        return df
+
+    async def _close_position_reduce_only(self, current_price: Optional[float] = None):
+        if not self.in_position or self.position_size <= 0 or self.entry_price is None:
+            return
+        side = 'SELL' if self.position_type == 'LONG' else 'BUY'
+        _, sent_qty = await self.place_order(side, self.position_size, reduce_only=True)
+        used_qty = sent_qty or self.position_size
+
+        if current_price is None:
+            mp = await self._get_mark_price()
+            current_price = mp if mp is not None else self.entry_price
+
+        if self.position_type == 'LONG':
+            raw_pnl = (current_price - self.entry_price) * used_qty
+        else:
+            raw_pnl = (self.entry_price - current_price) * used_qty
+        fee = (self.entry_price + current_price) * TAKER_FEE * used_qty
+        pnl = raw_pnl - fee
+        self.capital += pnl
+        logger.info(f"{self.symbol} Position closed | Entry: {self.entry_price:.4f} | Exit: {current_price:.4f} | PnL: ${pnl:.4f} | New Capital: ${self.capital:.4f}")
+
+        self.in_position = False
+        self.position_type = None
+        self.entry_price = None
+        self.stop_loss = None
+        self.take_profit = None
+        self.trailing_stop = None
+        self.position_size = 0.0
+        self.hold_start_ts = None
+
+    async def check_trading_signals(self):
+        df = self.calculate_indicators()
+        if df.empty:
+            return
+        last = df.iloc[-1]
+        price = float(last['close'])
+        atr = float(last['atr']) if not pd.isna(last['atr']) else None
+        lev = float(self.config['leverage'])
+        risk = float(self.config['risk_per_trade'])
+
+        long_sig = bool(last.get('long_signal', False))
+        short_sig = bool(last.get('short_signal', False))
+
+        # Reversal bila sinyal berlawanan
+        if self.in_position and ((self.position_type == 'LONG' and short_sig) or (self.position_type == 'SHORT' and long_sig)):
+            await self._close_position_reduce_only(price)
+            # lanjut buka posisi baru sesuai sinyal
+            self.in_position = False
+
+        if self.in_position:
+            return  # masih ada posisi searah, tidak open baru
+
+        if not (long_sig or short_sig):
+            return
+
+        # Hitung margin dari available balance
+        avail = await self._get_available_balance()
+        max_cost = avail * risk
+        if max_cost <= 0 or price <= 0: return
+        raw_qty = (max_cost * lev) / price
+
+        # Place order
+        side = 'BUY' if long_sig else 'SELL'
+        order, qty = await self.place_order(side, raw_qty)
+        if not qty:
+            return
+
+        # set state
+        self.position_size = qty
+        self.entry_price = price
+        self.position_type = 'LONG' if long_sig else 'SHORT'
+        self.in_position = True
+        self.hold_start_ts = time.time()
+
+        if atr is not None:
+            if self.position_type == 'LONG':
+                self.stop_loss = price - atr * 1.5
+                self.take_profit = price + atr * 3.0
+            else:
+                self.stop_loss = price + atr * 1.5
+                self.take_profit = price - atr * 3.0
+            self.trailing_stop = self.stop_loss
+        else:
+            self.stop_loss = price * (0.99 if self.position_type == 'LONG' else 1.01)
+            self.take_profit = price * (1.02 if self.position_type == 'LONG' else 0.98)
+            self.trailing_stop = self.stop_loss
+
+        est_cost = (qty * price) / lev
+        est_notional = qty * price
+        logger.info(f"{self.symbol} {self.position_type} opened | Price={price:.6f} | Qty={qty:.6f} | Cost≈${est_cost:.4f} | Notional≈${est_notional:.4f} | Lev={lev:.0f}x")
+
+    async def monitor_position(self, current_price):
+        async with self.lock:
+            if not self.in_position:
+                return
+
+            use_trailing = self.config['use_trailing']
+            trailing_trigger = self.config['trailing_trigger']
+            trailing_step = self.config['trailing_step']
+
+            if self.position_type == 'LONG' and use_trailing:
+                profit_pct = (current_price - self.entry_price) / self.entry_price * 100
+                if profit_pct >= trailing_trigger:
+                    new_trailing = current_price - (trailing_step / 100) * current_price
+                    if new_trailing > (self.trailing_stop or -float('inf')):
+                        self.trailing_stop = new_trailing
+                        logger.info(f"{self.symbol} Trailing SL updated: {self.trailing_stop}")
+            elif self.position_type == 'SHORT' and use_trailing:
+                profit_pct = (self.entry_price - current_price) / self.entry_price * 100
+                if profit_pct >= trailing_trigger:
+                    new_trailing = current_price + (trailing_step / 100) * current_price
+                    if new_trailing < (self.trailing_stop or float('inf')):
+                        self.trailing_stop = new_trailing
+                        logger.info(f"{self.symbol} Trailing SL updated: {self.trailing_stop}")
+
+            exit_cond = False
+            reason = None
+            if self.position_type == 'LONG':
+                if self.trailing_stop is not None and current_price <= self.trailing_stop:
+                    exit_cond, reason = True, 'Hit Trailing SL'
+                elif self.take_profit is not None and current_price >= self.take_profit:
+                    exit_cond, reason = True, 'Hit Take Profit'
+            else:
+                if self.trailing_stop is not None and current_price >= self.trailing_stop:
+                    exit_cond, reason = True, 'Hit Trailing SL'
+                elif self.take_profit is not None and current_price <= self.take_profit:
+                    exit_cond, reason = True, 'Hit Take Profit'
+
+            now = time.time()
+            if not exit_cond and self.hold_start_ts is not None and (now - self.hold_start_ts) >= MAX_HOLD_SECONDS:
+                mp = await self._get_mark_price()
+                mark = mp if mp is not None else current_price
+                used_qty = self.position_size
+                if used_qty > 0 and self.entry_price is not None and self.config['leverage'] > 0:
+                    if self.position_type == 'LONG':
+                        unreal = (mark - self.entry_price) * used_qty
+                    else:
+                        unreal = (self.entry_price - mark) * used_qty
+                    init_margin = (self.entry_price * used_qty) / float(self.config['leverage'])
+                    roi = (unreal / init_margin) if init_margin > 0 else 0.0
+                    if roi >= MIN_ROI_TO_CLOSE_BY_TIME:
+                        exit_cond, reason = True, f'Max hold reached (ROI {roi*100:.2f}%)'
+                    else:
+                        logger.info(f"{self.symbol} Hold extended (ROI {roi*100:.2f}% < {MIN_ROI_TO_CLOSE_BY_TIME*100:.2f}%), skip time-based close")
+                        self.hold_start_ts = now
+
+            if exit_cond:
+                logger.info(f"{self.symbol} {reason}: {current_price}")
+                await self._close_position_reduce_only(current_price)
+
+    async def place_order(self, side: str, quantity: float, reduce_only: bool = False):
+        info = await self.require_client().futures_exchange_info()
+        s = next(item for item in info['symbols'] if item['symbol'] == self.symbol)
+        lot = next(f for f in s['filters'] if f['filterType'] in ('MARKET_LOT_SIZE','LOT_SIZE'))
+        step = float(lot.get('stepSize', '0'))
+        min_qty = float(lot.get('minQty', '0'))
+        qprec = s.get('quantityPrecision', 0)
+
+        qty = float(quantity)
+        if step and step > 0:
+            qty = floor_to_step(qty, step)
+        if min_qty and qty < min_qty:
+            logger.error(f"{self.symbol} qty below minQty after floor: {qty} < {min_qty}")
+            return None, None
+        if qprec is not None:
+            try:
+                qty = float(f"{qty:.{int(qprec)}f}")
+            except Exception:
+                pass
+        if qty <= 0:
+            logger.error(f"Invalid quantity after floor: {qty}")
+            return None, None
+
+        order = await self.require_client().futures_create_order(
+            symbol=self.symbol, side=side, type=ORDER_TYPE_MARKET,
+            quantity=qty, reduceOnly=reduce_only, newOrderRespType='RESULT'
+        )
+        logger.info(f"Order executed: {order}")
+        return order, qty
+
+    async def start_websocket(self):
+        if self.client is None:
+            logger.error(f"Client not initialized for {self.symbol}")
+            return
+
+        retry = 0
+        while True:
+            bm = None
+            try:
+                bm = BinanceSocketManager(self.client)
+                stream_symbol = self.symbol.lower()
+                self.websocket = bm.kline_futures_socket(symbol=stream_symbol, interval=TIMEFRAME)
+                await self.websocket.__aenter__()
+                logger.info(f"{self.symbol} WebSocket started")
+
+                while True:
+                    msg = await asyncio.wait_for(self.websocket.recv(), timeout=WS_NO_MSG_TIMEOUT)
+                    await self.handle_socket_message(msg)
+
+            except asyncio.TimeoutError:
+                logger.warning(f"{self.symbol} WS idle > {WS_NO_MSG_TIMEOUT}s, reconnecting...")
+            except asyncio.CancelledError:
+                logger.info(f"{self.symbol} WS task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"{self.symbol} WS error: {e}")
+            finally:
+                try:
+                    if self.websocket:
+                        await self.websocket.__aexit__(None, None, None)
+                except Exception:
+                    pass
+
+            retry += 1
+            if WS_MAX_RETRY and retry > WS_MAX_RETRY:
+                logger.error(f"{self.symbol} WS stopped after {retry} retries")
+                break
+
+            sleep_s = min(WS_BACKOFF_BASE ** retry, WS_BACKOFF_MAX)
+            logger.info(f"{self.symbol} WS reconnect in {sleep_s:.1f}s (retry {retry})")
+            await asyncio.sleep(sleep_s)
+
+    async def handle_socket_message(self, msg):
+        try:
+            if not msg:
+                return
+            data = msg.get('data') if isinstance(msg, dict) and 'data' in msg else msg
+
+            if isinstance(data, dict) and ('k' in data or data.get('e') == 'kline'):
+                k = data['k'] if 'k' in data else data
+                if k.get('x'):
+                    new_candle = {
+                        'timestamp': k['t'],
+                        'open': float(k['o']), 'high': float(k['h']),
+                        'low': float(k['l']), 'close': float(k['c']),
+                        'volume': float(k['v'])
+                    }
+                    self.data = pd.concat([self.data, pd.DataFrame([new_candle])], ignore_index=True)
+                    await self.check_trading_signals()
+
+                if self.in_position:
+                    current_price = float(k['c'])
+                    await self.monitor_position(current_price)
+        except Exception as e:
+            logger.error(f"Socket error for {self.symbol}: {e}")
+
+    async def stop(self):
+        if self.websocket:
+            try:
+                await self.websocket.__aexit__(None, None, None)
+            except Exception:
+                pass
+        if self.client:
+            try:
+                await self.client.close_connection()
+            except Exception:
+                pass
+
+
+class TradingManager:
+    def __init__(self, api_key: str, api_secret: str):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.traders: dict[str, CoinTrader] = {}
+        self.configs = self.load_configs()
+        self.shared_client: Optional[AsyncClient] = None
+
+    def load_configs(self):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                configs = json.load(f)
+            for s in SYMBOLS:
+                if s not in configs:
+                    raise ValueError(f"Configuration missing for {s}")
+            logger.info("Configuration loaded successfully")
+            return configs
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            raise
+
+    async def get_futures_balance(self) -> float:
+        try:
+            client = self.shared_client
+            close_after = False
+            if client is None:
+                client = await AsyncClient.create(self.api_key, self.api_secret)
+                close_after = True
+            account = await client.futures_account()
+            if close_after:
+                await client.close_connection()
+            for asset in account['assets']:
+                if asset['asset'] == 'USDT':
+                    bal = float(asset['availableBalance'])
+                    logger.info(f"Available futures balance: {bal} USDT")
+                    return bal
+            raise ValueError("USDT balance not found")
+        except Exception as e:
+            logger.error(f"Failed to get futures balance: {e}")
+            raise
+
+    async def initialize(self):
+        if self.shared_client is None:
+            self.shared_client = await AsyncClient.create(self.api_key, self.api_secret)
+        total_balance = await self.get_futures_balance()
+        trading_balance = total_balance * RISK_PERCENTAGE
+        capital_per_coin = trading_balance / len(SYMBOLS)
+        logger.info(f"Total balance: {total_balance:.2f} USDT")
+        logger.info(f"Allocated trading balance: {trading_balance:.2f} USDT")
+        logger.info(f"Capital per coin: {capital_per_coin:.2f} USDT")
+
+        for s in SYMBOLS:
+            t = CoinTrader(s, self.api_key, self.api_secret, capital_per_coin, self.configs[s])
+            t.client = self.shared_client
+            await t.initialize()
+            self.traders[s] = t
+            logger.info(f"Trader initialized for {s}")
+
+    async def _start_multiplex(self):
+        assert self.shared_client is not None
+        retry = 0
+        while True:
+            bm = None
+            ms = None
+            try:
+                bm = BinanceSocketManager(self.shared_client)
+                streams = [f"{s.lower()}@kline_{TIMEFRAME}" for s in SYMBOLS]
+                ms = bm.multiplex_socket(streams)
+                await ms.__aenter__()
+                logger.info(f"Multiplex WS started for {len(streams)} streams")
+                while True:
+                    msg = await asyncio.wait_for(ms.recv(), timeout=WS_NO_MSG_TIMEOUT)
+                    stream = msg.get('stream', '')
+                    sym = stream.split('@')[0].upper() if '@' in stream else None
+                    trader = self.traders.get(sym) if sym else None
+                    if trader:
+                        await trader.handle_socket_message(msg)
+            except asyncio.TimeoutError:
+                logger.warning(f"Multiplex WS idle > {WS_NO_MSG_TIMEOUT}s, reconnecting...")
+            except asyncio.CancelledError:
+                logger.info("Multiplex WS task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Multiplex WS error: {e}")
+            finally:
+                try:
+                    if ms:
+                        await ms.__aexit__(None, None, None)
+                except Exception:
+                    pass
+            retry += 1
+            if WS_MAX_RETRY and retry > WS_MAX_RETRY:
+                logger.error(f"Multiplex WS stopped after {retry} retries")
+                break
+            sleep_s = min(WS_BACKOFF_BASE ** retry, WS_BACKOFF_MAX)
+            logger.info(f"Multiplex WS reconnect in {sleep_s:.1f}s (retry {retry})")
+            await asyncio.sleep(sleep_s)
+
+    async def start_trading(self):
+        if USE_MULTIPLEX:
+            logger.info("Starting with multiplex WebSocket (single connection).")
+            await self._start_multiplex()
+        else:
+            logger.info("Starting with per-symbol WebSocket (one connection per symbol).")
+            tasks = [t.start_websocket() for t in self.traders.values()]
+            await asyncio.gather(*tasks)
+        while True:
+            await asyncio.sleep(3600)
+
+    async def stop(self):
+        for t in self.traders.values():
+            await t.stop()
+        if self.shared_client:
+            try:
+                await self.shared_client.close_connection()
+            except Exception:
+                pass
+            self.shared_client = None
+
+
+async def main():
+    api_key = os.getenv('BINANCE_API_KEY')
+    api_secret = os.getenv('BINANCE_API_SECRET')
+    if not api_key or not api_secret:
+        raise ValueError("API keys not found in environment variables")
+    manager = TradingManager(api_key, api_secret)
+    await manager.initialize()
+    try:
+        await manager.start_trading()
+    finally:
+        await manager.stop()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Shutting down traders...")
+    except Exception as e:
+        logger.error(f"Critical error: {e}")
+    finally:
+        logger.info("Trading bot stopped")

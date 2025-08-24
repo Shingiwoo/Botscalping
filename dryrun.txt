@@ -1,0 +1,59 @@
+python tools_dryrun_summary.py \
+  --symbol ADAUSDT \
+  --csv data/ADAUSDT_15m_2025-06-01_to_2025-08-09.csv \
+  --coin_config coin_config.json \
+  --steps 2000 --balance 20 \
+  --out ADA_dryrun_trades_2000.csv
+  
+python tools_dryrun_summary.py \
+  --symbol DOGEUSDT \
+  --csv data/DOGEUSDT_15m_2025-06-01_to_2025-08-09.csv \
+  --coin_config coin_config.json \
+  --steps 2000 --balance 20 \
+  --out DOGE_dryrun_trades_2000.csv
+    
+python tools_dryrun_summary.py \
+  --symbol XRPUSDT \
+  --csv data/XRPUSDT_15m_2025-06-01_to_2025-08-09.csv \
+  --coin_config coin_config.json \
+  --steps 2000 --balance 20 \
+  --out XRP_dryrun_trades_2000.csv
+
+python tools_dryrun_summary.py \
+  --symbol TURBOUSDT \
+  --csv data/TURBOUSDT_15m_2025-06-01_to_2025-08-09.csv \
+  --coin_config coin_config.json \
+  --steps 2000 --balance 20 \
+  --out TURBO_dryrun_trades_2000.csv
+  
+python tools_dryrun_summary.py \
+  --symbol SHIBUSDT \
+  --csv data/SHIBUSDT_15m_2025-06-01_to_2025-08-09.csv \
+  --coin_config coin_config.json \
+  --steps 2000 --balance 20 \
+  --out SHIB_dryrun_trades_2000.csv
+  
+  
+Contoh tuning ringan (mulai dari ADA)
+Tujuannya: jaga PF > 2, kurangi impact 1 kali hard SL.
+
+ADA (15m):
+
+be_trigger_pct: 0.006 → 0.005 (BE lebih cepat, kurangi risiko berubah jadi loss besar)
+
+sl_atr_mult: 1.5 → 1.4 (SL sedikit lebih ketat; tetap bound oleh sl_min_pct/sl_max_pct)
+
+sl_max_pct: 0.035 → 0.030
+
+cooldown_seconds: 1200 → 900 (lebih responsif; 15m ≈ 60 bar/hari)
+
+SCORE_THRESHOLD: tetap 1.20 (sudah bagus)
+
+XRP (15m):
+
+Trade-nya masih sedikit (2 di 500 langkah). Kalau ingin lebih banyak setup:
+SCORE_THRESHOLD: 1.20 → 1.15
+(atau biarkan lalu tambah langkah ke 1500 untuk melihat sampling lebih luas)
+
+
+

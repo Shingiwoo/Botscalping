@@ -1,0 +1,12 @@
+pandas
+numpy
+websockets
+ta
+streamlit
+matplotlib
+plotly
+scikit-learn
+python-binance
+python-dotenv
+ujson
+filelock
