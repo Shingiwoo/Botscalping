@@ -15,7 +15,7 @@ services:
       - --live
       - --real-exec
       - --symbols
-      - DOGEUSDT,XRPUSDT,ADAUSDT,NEIROUSDT,TURBOUSDT
+      - DOGEUSDT,XRPUSDT,ADAUSDT,ALGOUSDT,TURBOUSDT,DOTUSDT
       - --interval
       - 15m
       - --coin_config
