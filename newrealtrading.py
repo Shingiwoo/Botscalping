@@ -15,6 +15,26 @@ import pandas as pd
 import numpy as np
 from decimal import getcontext
 
+# --- tipe live posisi & helper presisi ---
+@dataclass
+class LivePos:
+    side: str               # "LONG" / "SHORT"
+    qty: float              # abs(quantity)
+    entry_price: float      # entry price dari exchange (fallback mark)
+    leverage: int
+
+def qty_to_str(step_size: float, quantity_precision: int, qty: float) -> str:
+    from decimal import Decimal, ROUND_DOWN
+    q = Decimal(str(qty))
+    if step_size and step_size > 0:
+        step = Decimal(str(step_size))
+        q = (q / step).to_integral_value(rounding=ROUND_DOWN) * step
+    qprec = max(int(quantity_precision or 0), 0)
+    return f"{q:.{qprec}f}"
+
+def price_to_str(p: float, dp: int = 8) -> str:
+    return f"{float(p):.{dp}f}"
+
 # --- TA
 from ta.trend import EMAIndicator, SMAIndicator, MACD
 from ta.momentum import RSIIndicator
@@ -328,6 +348,49 @@ class ExecutionClient:
     def open_orders(self, symbol: str):
         return self.client.futures_get_open_orders(symbol=symbol)
 
+    def get_live_position(self, symbol: str) -> Optional[LivePos]:
+        try:
+            info = self.position_info(symbol) or {}
+        except Exception:
+            info = {}
+        amt = float(info.get("positionAmt", 0) or 0)
+        if abs(amt) < 1e-12:
+            return None
+        entry = float(info.get("entryPrice") or 0) or float(info.get("markPrice") or 0)
+        lev = int(float(info.get("leverage") or 1))
+        side = "LONG" if amt > 0 else "SHORT"
+        return LivePos(side=side, qty=abs(amt), entry_price=entry, leverage=lev)
+
+    def has_active_sl_close_all(self, symbol: str) -> bool:
+        try:
+            orders = self.open_orders(symbol)
+        except Exception:
+            orders = []
+        for od in orders:
+            t = (od.get("type") or "").upper()
+            if t in ("STOP_MARKET", "STOP"):
+                if str(od.get("closePosition", "")).lower() == "true":
+                    return True
+        return False
+
+    def place_protective_sl_close_all(self, symbol: str, side: str, stop_price: float) -> bool:
+        params = dict(
+            symbol=symbol,
+            side=("SELL" if side == "LONG" else "BUY"),
+            type="STOP_MARKET",
+            stopPrice=price_to_str(stop_price, dp=8),
+            workingType="MARK_PRICE",
+            closePosition=True,
+            reduceOnly=True,
+            timeInForce="GTC",
+        )
+        try:
+            o = self._order_with_retry(params, 0.0, stop_price)
+            return bool(o)
+        except Exception as e:
+            self._log(f"protective SL fail: {e}")
+            return False
+
     def market_close(self, symbol: str, side: str, qty: float, client_id: Optional[str]=None) -> Dict[str, Any]:
         try:
             info = self.position_info(symbol) or {}
@@ -497,6 +560,14 @@ class CoinTrader:
     def _clamp_pos(self, x: float, min_x: float = 1e-9) -> float:
         return x if (x is not None and x > min_x) else min_x
 
+    def _clear_position_state(self, cancel_orders: bool = False) -> None:
+        self.pos = Position()
+        if cancel_orders and self.exec:
+            try:
+                self.exec.cancel_all(self.symbol)
+            except Exception:
+                pass
+
     # Hook: ganti dengan sumber data live kamu
     def fetch_recent_klines(self) -> pd.DataFrame:
         """Return DataFrame dengan kolom: timestamp, open, high, low, close, volume"""
@@ -655,6 +726,57 @@ class CoinTrader:
                             close_all=True,
                             client_id=cid,
                         )
+
+    def _calc_sl_on_attach(self, live: LivePos, indicators: dict) -> float:
+        mode = (self.config.get("manual_guard", {}).get("sl_on_attach_mode", "ATR") or "ATR").upper()
+        entry = live.entry_price
+        atr = float(indicators.get("atr") or 0)
+        sl_min = float(self.config.get("manual_guard", {}).get("sl_min_pct", 0.010))
+        sl_max = float(self.config.get("manual_guard", {}).get("sl_max_pct", 0.030))
+        if mode == "PCT" or atr <= 0:
+            sl_pct = float(self.config.get("manual_guard", {}).get("sl_on_attach_pct", 0.012))
+        else:
+            mult = float(self.config.get("manual_guard", {}).get("sl_on_attach_atr_mult", 1.6))
+            sl_pct = (mult * (atr / entry)) if entry else 0.0
+        sl_pct = max(sl_min, min(sl_pct, sl_max))
+        if live.side == "LONG":
+            return entry * (1 - sl_pct)
+        else:
+            return entry * (1 + sl_pct)
+
+    def reconcile_manual_position(self, kline: dict, indicators: dict) -> None:
+        if not self.config.get("adopt_manual_positions", 0):
+            return
+        if not self.exec:
+            return
+        live = self.exec.get_live_position(self.symbol)
+        have_state = bool(self.pos and self.pos.qty > 0)
+        if (live is not None) and (not have_state):
+            self._log(f"[{self.symbol}] ADOPT manual position: side={live.side} qty={live.qty} entry={live.entry_price}")
+            self.pos = Position(
+                side=live.side,
+                qty=live.qty,
+                entry=live.entry_price,
+                entry_time=pd.Timestamp.utcnow(),
+                allow_trailing=True,
+            )
+            if self.config.get("manual_guard", {}).get("place_sl_on_attach", 1):
+                if not self.exec.has_active_sl_close_all(self.symbol):
+                    stop = self._calc_sl_on_attach(live, indicators)
+                    ok = self.exec.place_protective_sl_close_all(self.symbol, live.side, stop)
+                    if ok:
+                        self._log(f"[{self.symbol}] Protective SL placed on attach @ {stop}")
+                    else:
+                        self._log(f"[{self.symbol}] FAILED place protective SL on attach")
+            return
+        if have_state and (live is None):
+            self._log(f"[{self.symbol}] Live flat but state had pos -> clearing state")
+            self._clear_position_state(cancel_orders=True)
+            return
+        if have_state and (live is not None):
+            if abs(live.qty - self.pos.qty) > 1e-12:
+                self._log(f"[{self.symbol}] Live qty changed: {self.pos.qty} -> {live.qty}")
+                self.pos.qty = live.qty
 
     def _cooldown_active(self) -> bool:
         return bool(self.cooldown_until_ts and time.time() < self.cooldown_until_ts)
@@ -854,6 +976,8 @@ class CoinTrader:
         if not math.isfinite(price):
             raise ValueError("Non-finite price")
         atr = float(last['atr']) if not pd.isna(last['atr']) else 0.0
+
+        self.reconcile_manual_position(kline=last.to_dict(), indicators=last.to_dict())
 
         up_prob = None
         if self.ml.use_ml:
