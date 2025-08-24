@@ -147,9 +147,9 @@
     "taker_fee": 0.0005,
     "margin_type": "ISOLATED",
     "startup_skip_bars": 0,
-    "min_atr_pct": 0.0020,
+    "min_atr_pct": 0.0015,
     "max_atr_pct": 0.05,
-    "max_body_atr": 2.0,
+    "max_body_atr": 2.2,
     "use_htf_filter": 0,
     "cooldown_seconds": 900,
     "sl_mode": "ATR",
@@ -169,13 +169,10 @@
     },
     "ml": {
       "strict": false,
-      "score_threshold": 0.90
+      "score_threshold": 0.85
     },
     "tp_mode": "dual_strength",
-    "strength_rules": {
-      "weak_if_atr_pct_lt": 0.01,
-      "weak_if_roi_future_lt": 0.15
-    },
+    "strength_rules": { "weak_if_atr_pct_lt": 0.008, "weak_if_roi_future_lt": 0.15 },
     "weak_tp_roi_pct": 0.10,
     "use_trailing_on_strong": 1,
     "use_breakeven": 1,

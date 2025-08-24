@@ -148,6 +148,14 @@ class ExecutionClient:
         tick = self.get_tick_size(symbol)
         return round_to_tick(price, tick)
 
+    def _qty_to_str(self, symbol: str, qty: float) -> str:
+        flt = self.symbol_filters.get(symbol.upper(), {})
+        qprec = int(flt.get("quantityPrecision") or 0)
+        step = float(flt.get("stepSize") or 0.0)
+        base = as_scalar(qty)
+        q = floor_to_step(base + 1e-12, step) if step > 0 else base
+        return f"{q:.{qprec}f}"
+
     def set_leverage(self, symbol: str, leverage: int):
         try:
             self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
@@ -203,7 +211,7 @@ class ExecutionClient:
                 flt = self.symbol_filters.get(symbol.upper(), {})
                 self._log(f"[ROUND-RETRY] {symbol}: raw_qty={raw_qty} step={flt.get('stepSize')} qPrec={flt.get('quantityPrecision')} -> retry")
                 self._load_filters(log=False)
-                params["quantity"] = self.round_qty(symbol, raw_qty)
+                params["quantity"] = self._qty_to_str(symbol, raw_qty)
                 if raw_price is not None:
                     params["stopPrice"] = f"{self.round_price(symbol, raw_price):.8f}"
                 try:
@@ -243,7 +251,8 @@ class ExecutionClient:
         if r_qty <= 0:
             self._log(f"SKIP entry: qty<minQty (raw={qty})")
             return {}
-        params = dict(symbol=symbol, side=side, type="MARKET", quantity=r_qty, reduceOnly=False)
+        params = dict(symbol=symbol, side=side, type="MARKET",
+                      quantity=self._qty_to_str(symbol, r_qty), reduceOnly=False)
         if client_id:
             params["newClientOrderId"] = client_id
         o = self._order_with_retry(params, qty)
@@ -270,27 +279,27 @@ class ExecutionClient:
             side=side,
             type=order_type,
             stopPrice=f"{sp:.8f}",
-            closePosition=False,
-            reduceOnly=reduce_only,
+            closePosition=True if close_all else False,
+            reduceOnly=True if close_all else reduce_only,
             workingType="MARK_PRICE",
             timeInForce="GTC",
         )
         r_qty = 0.0
-        if not (reduce_only or close_all):
+        raw_qty = 0.0
+        if not close_all:
             raw_qty = float(qty or 0.0)
             r_qty = self.round_qty(symbol, raw_qty)
             if r_qty <= 0:
                 self._log(f"SKIP stop: qty<minQty (raw={raw_qty})")
                 return {}
-            params["quantity"] = r_qty
+            params["quantity"] = self._qty_to_str(symbol, r_qty)
         else:
-            params["closePosition"] = True
             params.pop("quantity", None)
-            params["reduceOnly"] = True
         if client_id:
             params["newClientOrderId"] = client_id
         try:
-            o = self._order_with_retry(params, r_qty, raw_price)
+            raw_for_retry = raw_qty if not close_all else 0.0
+            o = self._order_with_retry(params, raw_for_retry, raw_price)
             if self.verbose and o:
                 print(
                     f"[EXEC] {order_type} {symbol} {side} stop={sp} closePos={params['closePosition']} -> orderId={o.get('orderId')}"
@@ -331,11 +340,12 @@ class ExecutionClient:
         close_side = "SELL" if pos_amt > 0 else "BUY"
         qty_live = abs(pos_amt)
         r_qty = self.round_qty(symbol, qty_live)
-        params = dict(symbol=symbol, side=close_side, type="MARKET", quantity=r_qty, reduceOnly=True)
+        params = dict(symbol=symbol, side=close_side, type="MARKET",
+                      quantity=self._qty_to_str(symbol, r_qty), reduceOnly=True)
         if client_id:
             params["newClientOrderId"] = client_id
         try:
-            o = self._order_with_retry(params, r_qty)
+            o = self._order_with_retry(params, qty_live)
             if self.verbose and o:
                 print(f"[EXEC] MARKET CLOSE {symbol} {close_side} {r_qty} -> orderId={o.get('orderId')}")
         except BinanceAPIException as e:
@@ -353,11 +363,11 @@ class ExecutionClient:
         if rem >= step / 2:
             r2 = self.round_qty(symbol, rem)
             if r2 > 0:
-                params["quantity"] = r2
+                params["quantity"] = self._qty_to_str(symbol, r2)
                 if client_id:
                     params["newClientOrderId"] = f"{client_id}-r"
                 try:
-                    o = self._order_with_retry(params, r2)
+                    o = self._order_with_retry(params, rem)
                     if self.verbose and o:
                         print(f"[EXEC] MARKET CLOSE RETRY {symbol} {close_side} {r2} -> orderId={o.get('orderId')}")
                 except Exception as e:
@@ -1055,10 +1065,27 @@ class TradingManager:
                     cfg_all = load_coin_config(self.coin_config_path)
                     for sym, trader in self.traders.items():
                         new_cfg = merge_config(sym, cfg_all)
-                        # hanya update key aman
+                        float_keys = {
+                            "risk_per_trade","trailing_trigger","trailing_step","taker_fee",
+                            "min_atr_pct","max_atr_pct","max_body_atr","min_roi_to_close_by_time",
+                            "stepSize","minQty"
+                        }
+                        int_keys = {
+                            "leverage","cooldown_seconds","reverse_confirm_bars","min_hold_seconds","max_hold_seconds",
+                            "ML_MIN_TRAIN_BARS","ML_LOOKAHEAD","ML_RETRAIN_EVERY","quantityPrecision"
+                        }
+                        bool_keys = {"use_htf_filter","allow_sar","USE_ML"}
+                        # hanya update key aman dengan tipe yang tepat
                         for k, v in list(new_cfg.items()):
                             if k in safe_keys:
-                                trader.config[k] = v
+                                if k in float_keys:
+                                    trader.config[k] = _to_float(v, _to_float(trader.config.get(k, 0.0), 0.0))
+                                elif k in int_keys:
+                                    trader.config[k] = _to_int(v, _to_int(trader.config.get(k, 0), 0))
+                                elif k in bool_keys:
+                                    trader.config[k] = _to_bool(v)
+                                else:
+                                    trader.config[k] = v
                         # sinkron threshold ke plugin
                         ml_cfg = trader.config.get("ml", {}) if isinstance(trader.config.get("ml"), dict) else {}
                         if "score_threshold" in ml_cfg:
