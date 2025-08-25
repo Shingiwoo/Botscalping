@@ -741,7 +741,7 @@ class CoinTrader:
     def _update_trailing(self, price: float) -> None:
         safe_trigger, step = self._safe_trailing_params()
         entry = self.pos.entry
-        if not (entry is not None and self.pos.side and self.pos.allow_trailing):
+        if not (entry is not None and self.pos.side):
             return
         e = as_float(entry, 0.0)
         s = as_float(step, 0.0)
