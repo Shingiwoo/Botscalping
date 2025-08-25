@@ -1,4 +1,10 @@
 {
+  "_defaults": {
+    "weak_tp_roi_pct": 0.10,
+    "weak_spot_up_pct": 0.01,
+    "weak_fut_up_roi": 0.15,
+    "use_trailing_when_strong": true
+  },
   "ADAUSDT": {
     "SLIPPAGE_PCT": 0.02,
     "adopt_manual_positions": 1,
