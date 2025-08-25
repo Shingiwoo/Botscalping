@@ -56,7 +56,7 @@
     "startup_skip_bars": 0,
     "stepSize": 1.0,
     "strength_rules": {
-      "weak_if_atr_pct_lt": 0.006,
+      "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     },
     "taker_fee": 0.0005,
@@ -197,7 +197,7 @@
     "startup_skip_bars": 0,
     "stepSize": 1.0,
     "strength_rules": {
-      "weak_if_atr_pct_lt": 0.006,
+      "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     },
     "taker_fee": 0.0005,
@@ -273,7 +273,7 @@
     "startup_skip_bars": 0,
     "stepSize": 1.0,
     "strength_rules": {
-      "weak_if_atr_pct_lt": 0.006,
+      "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     },
     "taker_fee": 0.0005,
@@ -319,7 +319,7 @@
     "use_trailing_on_strong": 1,
     "use_trailing_on_weak": 0,
     "strength_rules": {
-      "weak_if_atr_pct_lt": 0.006,
+      "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     }
   },
@@ -428,7 +428,7 @@
     "startup_skip_bars": 0,
     "stepSize": 1.0,
     "strength_rules": {
-      "weak_if_atr_pct_lt": 0.006,
+      "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     },
     "taker_fee": 0.0005,
