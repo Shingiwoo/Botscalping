@@ -505,85 +505,59 @@ class ExecutionClient:
             self._log(f"protective TP fail: {e}")
             return False
 
-    def market_close(self, symbol: str, side: str, qty: float, client_id: Optional[str]=None) -> Dict[str, Any]:
-        try:
-            info = self.position_info(symbol) or {}
-        except Exception:
-            info = {}
+    def market_close(
+        self,
+        symbol: str,
+        side: str,
+        qty: Optional[float] = None,
+        client_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Tutup posisi via MARKET reduceOnly. Jika qty=None, ambil positionAmt terkini.
+        Selalu reduceOnly=True agar lolos minNotional (-4164).
+        """
+        info = self.position_info(symbol) or {}
         pos_amt = float(_to_float(info.get("positionAmt"), 0.0))
-        if abs(pos_amt) <= 0.0:
+        if abs(pos_amt) < 1e-12 and (qty is None or qty <= 0):
             self._log(f"SKIP close: no open position for {symbol}")
             return {}
-        close_side = "SELL" if pos_amt > 0 else "BUY"
-        qty_live = abs(pos_amt)
-        r_qty = self.round_qty(symbol, qty_live)
+
+        req_qty = abs(float(_to_float(qty, 0.0))) if qty is not None else abs(pos_amt)
+        side_close, a_qty = self._clamp_reduceonly_qty(symbol, side, req_qty)
+        if a_qty <= 0:
+            self._log(f"SKIP close: qty<=0 after clamp ({symbol})")
+            return {}
+
         params = dict(
             symbol=symbol,
-            side=close_side,
+            side=side_close,
             type="MARKET",
-            quantity=self._qty_to_str(symbol, r_qty),
+            quantity=self._qty_to_str(symbol, a_qty),
             reduceOnly=True,
+            timeInForce="GTC",
         )
         if client_id:
             params["newClientOrderId"] = client_id
-        try:
-            o = self._order_with_retry(params, qty_live)
-            if self.verbose and o:
-                print(f"[EXEC] MARKET CLOSE {symbol} {close_side} {r_qty} -> orderId={o.get('orderId')}")
-        except BinanceAPIException as e:
-            if getattr(e, "code", None) == -2022 and "ReduceOnly" in str(e):
-                if self.verbose:
-                    print(f"[EXEC] MARKET CLOSE ignore -2022 (no position to reduce) {symbol}")
-                return {}
-            raise
-        step = self.get_step_size(symbol)
-        try:
-            info2 = self.position_info(symbol) or {}
-        except Exception:
-            info2 = {}
-        rem = abs(float(_to_float(info2.get("positionAmt"), 0.0)))
-        if rem >= step / 2:
-            r2 = self.round_qty(symbol, rem)
-            if r2 > 0:
-                params["quantity"] = self._qty_to_str(symbol, r2)
-                if client_id:
-                    params["newClientOrderId"] = f"{client_id}-r"
-                try:
-                    o = self._order_with_retry(params, rem)
-                    if self.verbose and o:
-                        print(f"[EXEC] MARKET CLOSE RETRY {symbol} {close_side} {r2} -> orderId={o.get('orderId')}")
-                except Exception as e:
-                    self._log(f"close retry fail: {e}")
-                try:
-                    info2 = self.position_info(symbol) or {}
-                except Exception:
-                    info2 = {}
-                rem = abs(float(_to_float(info2.get("positionAmt"), 0.0)))
-        min_qty = float(_to_float(self.symbol_filters.get(symbol.upper(), {}).get("minQty"), 0.0))
-        if 0 < rem < min_qty:
-            try:
-                mark = float(_to_float(self.client.futures_mark_price(symbol=symbol).get("markPrice"), 0.0))
-            except Exception:
-                mark = 0.0
-            tick = self.get_tick_size(symbol)
-            sp = mark + tick if close_side == "SELL" else mark - tick
-            params2 = dict(
-                symbol=symbol,
-                side=close_side,
-                type="STOP_MARKET",
-                stopPrice=f"{sp:.8f}",
-                closePosition=True,
-                reduceOnly=True,
-                workingType="MARK_PRICE",
-                timeInForce="GTC",
-            )
-            try:
-                self._order_with_retry(params2, 0.0, sp)
-                if self.verbose:
-                    print(f"[EXEC] DUST SWEEP {symbol} {close_side} stop={sp}")
-            except Exception as e:
-                self._log(f"dust sweep fail: {e}")
+        o = self._order_with_retry(params, a_qty)
+        if self.verbose and o:
+            print(f"[EXEC] MARKET CLOSE {symbol} {side_close} {a_qty} -> orderId={o.get('orderId')}")
         return o
+
+    def flatten_position(self, symbol: str, max_tries: int = 3) -> bool:
+        """
+        Paksa posisi jadi 0 dengan MARKET reduceOnly (ulang beberapa kali bila perlu).
+        Menangani sisa kecil < minNotional dengan cara reduceOnly yang legal.
+        """
+        import time as _t
+        for _ in range(max_tries):
+            info = self.position_info(symbol) or {}
+            amt = float(_to_float(info.get("positionAmt"), 0.0))
+            if abs(amt) < 1e-12:
+                return True
+            side = "SELL" if amt > 0 else "BUY"
+            self.market_close(symbol, side, abs(amt))
+            _t.sleep(0.25)
+        return False
 
 __all__ = [
     "ExecutionClient",
@@ -846,6 +820,22 @@ class CoinTrader:
                             close_all=True,
                             client_id=cid,
                         )
+    def _calc_guard_sl_on_attach(self, entry: float, side: str) -> Optional[float]:
+        """
+        Hitung SL awal saat rehydrate jika SL hilang.
+        Prioritas: manual_guard.sl_on_attach_pct -> sl_pct,
+        clamp pada sl_min_pct..sl_max_pct.
+        """
+        if entry is None or entry <= 0 or not side:
+            return None
+        mg = self.config.get("manual_guard", {})
+        pct = _to_float(mg.get("sl_on_attach_pct", self.config.get("sl_pct", 0.01)), 0.01)
+        sl_min = _to_float(mg.get("sl_min_pct", self.config.get("sl_min_pct", 0.01)), 0.005)
+        sl_max = _to_float(mg.get("sl_max_pct", self.config.get("sl_max_pct", 0.03)), 0.05)
+        pct = min(max(pct, sl_min), sl_max)
+        if pct <= 0:
+            return None
+        return entry * (1.0 - pct) if side.upper() == "LONG" else entry * (1.0 + pct)
 
     def _calc_sl_on_attach(self, live: LivePos, indicators: dict) -> float:
         mode = (self.config.get("manual_guard", {}).get("sl_on_attach_mode", "ATR") or "ATR").upper()
@@ -1059,50 +1049,22 @@ class CoinTrader:
                 return True, 'Hit Hard SL'
         return False, None
 
-    def _force_close_residual(self) -> None:
-        if not self.exec:
-            return
-        live = self.exec.get_position(self.symbol)
-        if not live or not live.qty:
-            return
-        flt = self.exec.symbol_filters.get(self.symbol, {}) if self.exec else {}
-        step = _to_float(flt.get('stepSize', self.config.get('stepSize', 0.0)), 0.0)
-        minq = _to_float(flt.get('minQty', self.config.get('minQty', 0.0)), 0.0)
-        raw = abs(live.qty)
-        if step > 0:
-            from engine_core import ceil_to_step
-            qty_close = max(minq, ceil_to_step(raw, step))
-        else:
-            qty_close = max(minq, raw)
-        close_side = 'SELL' if live.side == 'LONG' else 'BUY'
-        cid = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
-        try:
-            self.exec.market_close(self.symbol, close_side, qty_close, client_id=cid + "-rescue")
-        except Exception:
-            try:
-                last = self.exec.get_last_price(self.symbol)
-                stop_price = last * (0.999 if close_side == 'SELL' else 1.001)
-                self.exec.stop_market(
-                    self.symbol,
-                    close_side,
-                    stop_price,
-                    reduce_only=True,
-                    close_all=True,
-                    client_id=cid + "-rescue-stop",
-                )
-            except Exception:
-                pass
-
     def _exit_position(self, price: float, reason: str) -> None:
         if self.exec and self.pos.side and self.pos.qty:
             try:
-                self.exec.cancel_all(self.symbol)
-            except Exception:
-                pass
-            close_side = 'SELL' if self.pos.side == 'LONG' else 'BUY'
-            cid = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
-            self.exec.market_close(self.symbol, close_side, self.pos.qty, client_id=cid)
-            self._force_close_residual()
+                if 'Hard SL' in (reason or ''):
+                    self.exec.flatten_position(self.symbol)
+                else:
+                    close_side = 'SELL' if self.pos.side == 'LONG' else 'BUY'
+                    cid = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
+                    self.exec.market_close(self.symbol, close_side, self.pos.qty, client_id=cid)
+                    self.exec.flatten_position(self.symbol)
+                try:
+                    self.exec.cancel_all(self.symbol)
+                except Exception:
+                    pass
+            except Exception as e:
+                self._log(f"exit close fail: {e}")
         self._log(f"EXIT {reason} price={price:.6f}")
         self.pos = Position()  # reset
         base_cd = _to_int(self.config.get('cooldown_seconds', DEFAULTS['cooldown_seconds']), DEFAULTS['cooldown_seconds'])
@@ -1346,6 +1308,14 @@ class TradingManager:
             trader.rehydrated = True
             trader.pending_skip_entries = max(trader.pending_skip_entries, trader.post_restart_skip_entries_bars)
         trader._log(f"[SYNC] Rehydrate posisi dari exchange side={side} entry={entry_price} qty={qty} sl={sl_price}")
+        # Jika SL hilang, pasang lagi otomatis
+        if trader.exec and trader.pos and trader.pos.side and (trader.pos.sl is None):
+            guard = trader._calc_guard_sl_on_attach(as_float(trader.pos.entry, 0.0), cast(str, trader.pos.side))
+            if guard and math.isfinite(guard) and guard > 0:
+                ok = trader.exec.place_protective_sl_close_all(trader.symbol, cast(str, trader.pos.side), guard)
+                trader._log(f"[SYNC] Attach missing SL @ {guard:.6f} -> {'OK' if ok else 'FAIL'}")
+                if ok:
+                    trader.pos.sl = guard
 
     def _watch_config(self):
         last_ts = 0.0
