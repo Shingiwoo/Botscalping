@@ -32,7 +32,10 @@ def qty_to_str(step_size: float, quantity_precision: int, qty: float) -> str:
     qprec = max(int(quantity_precision or 0), 0)
     return f"{q:.{qprec}f}"
 
-def price_to_str(p: float, dp: int = 8) -> str:
+def price_to_str(p: Optional[float], dp: int = 8) -> str:
+    # Fail-fast agar kita tak pernah mengirim 0/None ke exchange
+    if p is None:
+        raise ValueError("price_to_str: 'p' tidak boleh None")
     return f"{float(p):.{dp}f}"
 
 # --- TA
@@ -156,7 +159,7 @@ class ExecutionClient:
         symbol = (symbol or "").upper()
         if not symbol:
             raise ValueError("symbol is required")
-        qty = as_scalar(qty)
+        qty = float(_to_float(qty, 0.0))
         step = self.get_step_size(symbol)
         return floor_to_step(qty, step)
 
@@ -164,7 +167,7 @@ class ExecutionClient:
         symbol = (symbol or "").upper()
         if not symbol:
             raise ValueError("symbol is required")
-        price = as_scalar(price)
+        price = float(_to_float(price, 0.0))
         tick = self.get_tick_size(symbol)
         return round_to_tick(price, tick)
 
@@ -172,7 +175,7 @@ class ExecutionClient:
         flt = self.symbol_filters.get(symbol.upper(), {})
         qprec = int(flt.get("quantityPrecision") or 0)
         step = float(flt.get("stepSize") or 0.0)
-        base = as_scalar(qty)
+        base = float(_to_float(qty, 0.0))
         q = floor_to_step(base + 1e-12, step) if step > 0 else base
         return f"{q:.{qprec}f}"
 
@@ -347,6 +350,19 @@ class ExecutionClient:
 
     def open_orders(self, symbol: str):
         return self.client.futures_get_open_orders(symbol=symbol)
+
+    # --- Alias kompatibilitas lama (untuk code yang masih memanggil get_position/get_last_price) ---
+    def get_position(self, symbol: str):
+        """Alias lama -> gunakan position_info."""
+        return self.position_info(symbol)
+
+    def get_last_price(self, symbol: str) -> float:
+        """Alias lama -> ambil mark price sebagai 'last' untuk keperluan kalkulasi cepat."""
+        try:
+            mp = self.client.futures_mark_price(symbol=symbol)
+            return float(mp.get("markPrice") or mp.get("price") or 0.0)
+        except Exception:
+            return 0.0
 
     def get_live_position(self, symbol: str) -> Optional[LivePos]:
         try:
@@ -678,10 +694,11 @@ class CoinTrader:
 
     def _update_trailing(self, price: float) -> None:
         safe_trigger, step = self._safe_trailing_params()
-        if not (self.pos.entry and self.pos.side and self.pos.allow_trailing):
+        entry = self.pos.entry
+        if not (entry is not None and self.pos.side and self.pos.allow_trailing):
             return
         if self.pos.side=='LONG':
-            profit_pct = safe_div((price - self.pos.entry), self.pos.entry) * 100.0
+            profit_pct = safe_div((price - float(entry)), float(entry)) * 100.0
             if profit_pct >= safe_trigger:
                 new_ts = price * (1 - step/100.0)
                 prev = self.pos.trailing_sl
@@ -704,7 +721,7 @@ class CoinTrader:
                             client_id=cid,
                         )
         else:
-            profit_pct = safe_div((self.pos.entry - price), self.pos.entry) * 100.0
+            profit_pct = safe_div((float(entry) - price), float(entry)) * 100.0
             if profit_pct >= safe_trigger:
                 new_ts = price * (1 + step/100.0)
                 prev = self.pos.trailing_sl
@@ -763,11 +780,12 @@ class CoinTrader:
             if self.config.get("manual_guard", {}).get("place_sl_on_attach", 1):
                 if not self.exec.has_active_sl_close_all(self.symbol):
                     stop = self._calc_sl_on_attach(live, indicators)
-                    ok = self.exec.place_protective_sl_close_all(self.symbol, live.side, stop)
-                    if ok:
-                        self._log(f"[{self.symbol}] Protective SL placed on attach @ {stop}")
-                    else:
-                        self._log(f"[{self.symbol}] FAILED place protective SL on attach")
+                    if stop is not None:
+                        ok = self.exec.place_protective_sl_close_all(self.symbol, live.side, stop)
+                        if ok:
+                            self._log(f"[{self.symbol}] Protective SL placed on attach @ {stop}")
+                        else:
+                            self._log(f"[{self.symbol}] FAILED place protective SL on attach")
             return
         if have_state and (live is None):
             self._log(f"[{self.symbol}] Live flat but state had pos -> clearing state")
@@ -1115,27 +1133,32 @@ class CoinTrader:
             if self.pos.side and self.pos.entry_time and max_hold > 0:
                 elapsed = (pd.Timestamp.utcnow() - self.pos.entry_time).total_seconds()
                 lev = _to_int(self.config.get("leverage", DEFAULTS["leverage"]), DEFAULTS["leverage"])
-                if self.pos.entry is not None and self.pos.qty is not None:
-                    init_margin = safe_div((self.pos.entry * self.pos.qty), lev)
+                entry = self.pos.entry
+                qty = self.pos.qty
+                roi_frac = 0.0
+                if entry is not None and qty is not None:
+                    init_margin = safe_div(float(entry) * float(qty), lev)
                     if self.pos.side == "LONG":
-                        roi_frac = safe_div(((price - self.pos.entry) * self.pos.qty), init_margin)
+                        roi_frac = safe_div((price - float(entry)) * float(qty), init_margin)
                     else:
-                        roi_frac = safe_div(((self.pos.entry - price) * self.pos.qty), init_margin)
+                        roi_frac = safe_div((float(entry) - price) * float(qty), init_margin)
+                else:
+                    init_margin = 0.0
 
-                    only_if_loss = _to_bool(self.config.get('time_stop_only_if_loss', 0), False)
-                    if elapsed >= max_hold:
-                        if only_if_loss:
-                            if roi_frac <= 0:
-                                self._exit_position(price, f"Max hold reached (loss, ROI {roi_frac*100:.2f}%)")
-                                return 0.0
-                            else:
-                                self.pos.entry_time = pd.Timestamp.utcnow()
+                only_if_loss = _to_bool(self.config.get('time_stop_only_if_loss', 0), False)
+                if elapsed >= max_hold:
+                    if only_if_loss:
+                        if roi_frac <= 0:
+                            self._exit_position(price, f"Max hold reached (loss, ROI {roi_frac*100:.2f}%)")
+                            return 0.0
                         else:
-                            if roi_frac >= min_roi:
-                                self._exit_position(price, f"Max hold reached (ROI {roi_frac*100:.2f}%)")
-                                return 0.0
-                            else:
-                                self.pos.entry_time = pd.Timestamp.utcnow()
+                            self.pos.entry_time = pd.Timestamp.utcnow()
+                    else:
+                        if roi_frac >= min_roi:
+                            self._exit_position(price, f"Max hold reached (ROI {roi_frac*100:.2f}%)")
+                            return 0.0
+                        else:
+                            self.pos.entry_time = pd.Timestamp.utcnow()
             # --------------------------------------
             used = 0.0
             # Entry baru
