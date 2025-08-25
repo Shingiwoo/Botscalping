@@ -222,11 +222,41 @@ class ExecutionClient:
             except Exception:
                 return 0.0
 
-    def _order_with_retry(self, params: Dict[str, Any], raw_qty: float, raw_price: Optional[float] = None) -> Dict[str, Any]:
+    def _sanitize_order_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Binance USDT-M rules (disederhanakan):
+        - ENTRY (MARKET/LIMIT) -> jangan sertakan reduceOnly.
+        - STOP/TP close-all: jika closePosition=True -> JANGAN sertakan 'quantity' & 'reduceOnly'.
+        - Partial close via STOP/TP (tanpa closePosition): sertakan 'quantity' + reduceOnly=True.
+        """
+        t = str(params.get("type", "")).upper()
+        close_all = bool(params.get("closePosition", False))
+        has_qty = params.get("quantity") not in (None, "")
+
+        # ENTRY: hilangkan reduceOnly
+        if t in ("MARKET", "LIMIT") and not close_all:
+            params.pop("reduceOnly", None)
+
+        # CLOSE-ALL via STOP/TP
+        if t in ("STOP_MARKET", "TAKE_PROFIT_MARKET") and close_all:
+            params.pop("quantity", None)
+            params.pop("reduceOnly", None)
+
+        # Partial close: wajib reduceOnly
+        if t in ("STOP_MARKET", "TAKE_PROFIT_MARKET") and not close_all:
+            if has_qty:
+                params["reduceOnly"] = True
+
+        return params
+
+    def _order_with_retry(self, params: Dict[str, Any]) -> Dict[str, Any]:
         symbol = params.get("symbol")
         if not isinstance(symbol, str) or not symbol:
             self._log("order retry skipped: invalid symbol")
             return {}
+        raw_qty = float(params.get("quantity") or 0.0)
+        raw_price = float(params.get("stopPrice") or params.get("price") or 0.0)
+        params = self._sanitize_order_params(params)
         try:
             return self.client.futures_create_order(**params)
         except BinanceAPIException as e:
@@ -234,9 +264,11 @@ class ExecutionClient:
                 flt = self.symbol_filters.get(symbol.upper(), {})
                 self._log(f"[ROUND-RETRY] {symbol}: raw_qty={raw_qty} step={flt.get('stepSize')} qPrec={flt.get('quantityPrecision')} -> retry")
                 self._load_filters(log=False)
-                params["quantity"] = self._qty_to_str(symbol, raw_qty)
-                if raw_price is not None:
-                    params["stopPrice"] = f"{self.round_price(symbol, raw_price):.8f}"
+                if raw_qty > 0:
+                    params["quantity"] = self._qty_to_str(symbol, raw_qty)
+                if raw_price:
+                    params["stopPrice"] = price_to_str(self.round_price(symbol, raw_price), 8)
+                params = self._sanitize_order_params(params)
                 try:
                     return self.client.futures_create_order(**params)
                 except Exception as e2:
@@ -274,11 +306,15 @@ class ExecutionClient:
         if r_qty <= 0:
             self._log(f"SKIP entry: qty<minQty (raw={qty})")
             return {}
-        params = dict(symbol=symbol, side=side, type="MARKET",
-                      quantity=self._qty_to_str(symbol, r_qty), reduceOnly=False)
+        params = dict(
+            symbol=symbol,
+            side=side.upper(),
+            type="MARKET",
+            quantity=self._qty_to_str(symbol, r_qty),
+        )
         if client_id:
             params["newClientOrderId"] = client_id
-        o = self._order_with_retry(params, qty)
+        o = self._order_with_retry(params)
         if self.verbose and o:
             print(f"[EXEC] MARKET ENTRY {symbol} {side} {r_qty} -> orderId={o.get('orderId')}")
         return o
@@ -295,7 +331,6 @@ class ExecutionClient:
         order_type: str = "STOP_MARKET",
         close_all: bool = False,
     ) -> Dict[str, Any]:
-        raw_price = stop_price
         sp = self.round_price(symbol, stop_price)
         params = dict(
             symbol=symbol,
@@ -307,8 +342,6 @@ class ExecutionClient:
             workingType="MARK_PRICE",
             timeInForce="GTC",
         )
-        r_qty = 0.0
-        raw_qty = 0.0
         if not close_all:
             raw_qty = float(qty or 0.0)
             r_qty = self.round_qty(symbol, raw_qty)
@@ -316,13 +349,10 @@ class ExecutionClient:
                 self._log(f"SKIP stop: qty<minQty (raw={raw_qty})")
                 return {}
             params["quantity"] = self._qty_to_str(symbol, r_qty)
-        else:
-            params.pop("quantity", None)
         if client_id:
             params["newClientOrderId"] = client_id
         try:
-            raw_for_retry = raw_qty if not close_all else 0.0
-            o = self._order_with_retry(params, raw_for_retry, raw_price)
+            o = self._order_with_retry(params)
             if self.verbose and o:
                 print(
                     f"[EXEC] {order_type} {symbol} {side} stop={sp} closePos={params['closePosition']} -> orderId={o.get('orderId')}"
@@ -397,14 +427,30 @@ class ExecutionClient:
             stopPrice=price_to_str(stop_price, dp=8),
             workingType="MARK_PRICE",
             closePosition=True,
-            reduceOnly=True,
             timeInForce="GTC",
         )
         try:
-            o = self._order_with_retry(params, 0.0, stop_price)
+            o = self._order_with_retry(params)
             return bool(o)
         except Exception as e:
             self._log(f"protective SL fail: {e}")
+            return False
+
+    def place_tp_close_all(self, symbol: str, side: str, tp_price: float) -> bool:
+        params = dict(
+            symbol=symbol,
+            side=("SELL" if side == "LONG" else "BUY"),
+            type="TAKE_PROFIT_MARKET",
+            stopPrice=price_to_str(tp_price, dp=8),
+            workingType="MARK_PRICE",
+            closePosition=True,
+            timeInForce="GTC",
+        )
+        try:
+            o = self._order_with_retry(params)
+            return bool(o)
+        except Exception as e:
+            self._log(f"protective TP fail: {e}")
             return False
 
     def market_close(self, symbol: str, side: str, qty: float, client_id: Optional[str]=None) -> Dict[str, Any]:
@@ -419,12 +465,17 @@ class ExecutionClient:
         close_side = "SELL" if pos_amt > 0 else "BUY"
         qty_live = abs(pos_amt)
         r_qty = self.round_qty(symbol, qty_live)
-        params = dict(symbol=symbol, side=close_side, type="MARKET",
-                      quantity=self._qty_to_str(symbol, r_qty), reduceOnly=True)
+        params = dict(
+            symbol=symbol,
+            side=close_side,
+            type="MARKET",
+            quantity=self._qty_to_str(symbol, r_qty),
+            reduceOnly=True,
+        )
         if client_id:
             params["newClientOrderId"] = client_id
         try:
-            o = self._order_with_retry(params, qty_live)
+            o = self._order_with_retry(params)
             if self.verbose and o:
                 print(f"[EXEC] MARKET CLOSE {symbol} {close_side} {r_qty} -> orderId={o.get('orderId')}")
         except BinanceAPIException as e:
@@ -446,7 +497,7 @@ class ExecutionClient:
                 if client_id:
                     params["newClientOrderId"] = f"{client_id}-r"
                 try:
-                    o = self._order_with_retry(params, rem)
+                    o = self._order_with_retry(params)
                     if self.verbose and o:
                         print(f"[EXEC] MARKET CLOSE RETRY {symbol} {close_side} {r2} -> orderId={o.get('orderId')}")
                 except Exception as e:
@@ -475,7 +526,7 @@ class ExecutionClient:
                 timeInForce="GTC",
             )
             try:
-                self._order_with_retry(params2, 0.0, sp)
+                self._order_with_retry(params2)
                 if self.verbose:
                     print(f"[EXEC] DUST SWEEP {symbol} {close_side} stop={sp}")
             except Exception as e:
@@ -901,36 +952,23 @@ class CoinTrader:
                 allow_trailing=False,
             )
             self._log(f"ENTRY {side} price={price} qty={qty:.6f}")
-            if sl and self.exec:
-                stop_side = 'SELL' if side == 'LONG' else 'BUY'
-                self.exec.stop_market(
-                    self.symbol,
-                    stop_side,
-                    sl,
-                    reduce_only=True,
-                    close_all=True,
-                    client_id=cid + "-sl",
-                )
-                if is_weak:
-                    ep = as_float(self.pos.entry, 0.0)
-                    if self.pos.side == 'LONG':
-                        tp_price = ep * (1.0 + weak_tp_roi_pct / lev)
-                        stop_side = "SELL"
-                    else:
-                        tp_price = ep * (1.0 - weak_tp_roi_pct / lev)
-                        stop_side = "BUY"
-                    cid_tp = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
-                    self.exec.stop_market(
-                        self.symbol,
-                        stop_side,
-                        tp_price,
-                        reduce_only=True,
-                        close_all=True,
-                        order_type="TAKE_PROFIT_MARKET",
-                        client_id=cid_tp + "-tp",
-                    )
+            if sl is not None and self.exec:
+                ok = self.exec.place_protective_sl_close_all(self.symbol, self.pos.side, sl)
+                self._log(f"SL protect {'OK' if ok else 'FAIL'} @ {sl}")
+            else:
+                self._log("SKIP SL: sl=None (cek config/indikator)")
+            if is_weak:
+                self.pos.allow_trailing = bool(self.config.get("use_trailing_on_weak", 0))
+                ep = as_float(self.pos.entry, 0.0)
+                tp_roi = _to_float(self.config.get("weak_tp_roi_pct", 0.10), 0.10)
+                if self.pos.side == 'LONG':
+                    tp_price = ep * (1.0 + tp_roi / lev)
                 else:
-                    self.pos.allow_trailing = bool(use_trail_strong)
+                    tp_price = ep * (1.0 - tp_roi / lev)
+                ok = self.exec.place_tp_close_all(self.symbol, self.pos.side, tp_price) if self.exec else False
+                self._log(f"TP weak(ROI={tp_roi*100:.1f}%@lev{lev}) {'OK' if ok else 'FAIL'} @ {tp_price}")
+            else:
+                self.pos.allow_trailing = bool(use_trail_strong)
             return safe_div((price * qty), lev)
         except BinanceAPIException as e:
             if getattr(e, "code", None) == -2019:
@@ -1052,12 +1090,14 @@ class CoinTrader:
         try:
             if self.pending_skip_entries > 0:
                 self._apply_breakeven(price)
-                self._update_trailing(price)
+                if getattr(self.pos, "allow_trailing", False):
+                    self._update_trailing(price)
                 return 0.0
 
             if self.pos.side:
                 self._apply_breakeven(price)
-                self._update_trailing(price)
+                if getattr(self.pos, "allow_trailing", False):
+                    self._update_trailing(price)
                 ex, rs = self._should_exit(price)
                 if ex:
                     self._exit_position(price, rs or 'Exit')
@@ -1112,7 +1152,8 @@ class CoinTrader:
                 self._log(f"SIGNAL CONFIRM: menunggu {self.signal_flip_confirm_left} bar utk validasi flip")
                 if self.pos.side:
                     self._apply_breakeven(price)
-                    self._update_trailing(price)
+                    if getattr(self.pos, "allow_trailing", False):
+                        self._update_trailing(price)
                 return 0.0
 
             if USE_BACKTEST_ENTRY_LOGIC:
@@ -1127,7 +1168,8 @@ class CoinTrader:
             # Update SL/TS saat pegang posisi
             if self.pos.side:
                 self._apply_breakeven(price)
-                self._update_trailing(price)
+                if getattr(self.pos, "allow_trailing", False):
+                    self._update_trailing(price)
                 ex, reason = self._should_exit(price)
                 if ex:
                     self._exit_position(price, reason or 'Exit')

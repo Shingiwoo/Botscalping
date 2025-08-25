@@ -307,6 +307,14 @@
       "sl_on_attach_atr_mult": 1.6,
       "sl_on_attach_mode": "ATR",
       "sl_on_attach_pct": 0.012
+    },
+    "tp_mode": "dual_strength",
+    "weak_tp_roi_pct": 0.10,
+    "use_trailing_on_strong": 1,
+    "use_trailing_on_weak": 0,
+    "strength_rules": {
+      "weak_if_atr_pct_lt": 0.01,
+      "weak_if_roi_future_lt": 0.15
     }
   },
   "TURBOUSDT": {
