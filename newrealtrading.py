@@ -172,6 +172,41 @@ class ExecutionClient:
         tick = self.get_tick_size(symbol)
         return round_to_tick(price, tick)
 
+    def _normalize_stop_price(self, symbol: str, side: str, stop_price: float, order_type: str) -> float:
+        """
+        Pastikan stop_price > 0 dan sesuai aturan trigger:
+          - STOP_MARKET (cut loss):
+              LONG -> side SELL -> stopPrice harus DI BAWAH mark
+              SHORT -> side BUY  -> stopPrice harus DI ATAS mark
+          - TAKE_PROFIT_MARKET (take profit):
+              LONG -> side SELL -> stopPrice harus DI ATAS mark
+              SHORT -> side BUY  -> stopPrice harus DI BAWAH mark
+        Tambahkan epsilon = max(tick, 1e-8) agar lolos validasi engine.
+        """
+        try:
+            mp = float(_to_float(self.client.futures_mark_price(symbol=symbol).get("markPrice"), 0.0))
+        except Exception:
+            mp = 0.0
+
+        tick = max(self.get_tick_size(symbol), 1e-12)
+        sp = max(self.round_price(symbol, stop_price), tick)
+        t = (order_type or "").upper()
+        sd = (side or "").upper()
+        eps = tick
+
+        if t == "STOP_MARKET":
+            if sd == "SELL" and not (sp < mp):
+                sp = max(mp - eps, tick)
+            elif sd == "BUY" and not (sp > mp):
+                sp = mp + eps
+        elif t == "TAKE_PROFIT_MARKET":
+            if sd == "SELL" and not (sp > mp):
+                sp = mp + eps
+            elif sd == "BUY" and not (sp < mp):
+                sp = max(mp - eps, tick)
+
+        return max(sp, tick)
+
     def _qty_to_str(self, symbol: str, qty: float) -> str:
         flt = self.symbol_filters.get(symbol.upper(), {})
         qprec = int(flt.get("quantityPrecision") or 0)
@@ -263,9 +298,22 @@ class ExecutionClient:
                 flt = self.symbol_filters.get(symbol.upper(), {})
                 self._log(f"[ROUND-RETRY] {symbol}: raw_qty={raw_qty} step={flt.get('stepSize')} qPrec={flt.get('quantityPrecision')} -> retry")
                 self._load_filters(log=False)
-                params["quantity"] = self._qty_to_str(symbol, raw_qty)
+                close_all = bool(params.get("closePosition", False))
+
+                if not close_all and (raw_qty is not None) and (raw_qty > 0):
+                    params["quantity"] = self._qty_to_str(symbol, raw_qty)
+                else:
+                    params.pop("quantity", None)
+
                 if raw_price is not None:
-                    params["stopPrice"] = f"{self.round_price(symbol, raw_price):.8f}"
+                    sp = self._normalize_stop_price(
+                        symbol=symbol,
+                        side=str(params.get("side", "")).upper(),
+                        stop_price=float(raw_price),
+                        order_type=str(params.get("type", "")).upper(),
+                    )
+                    params["stopPrice"] = f"{sp:.8f}"
+
                 params = self._sanitize_order_params(params)
                 try:
                     return self.client.futures_create_order(**params)
@@ -329,7 +377,7 @@ class ExecutionClient:
         order_type: str = "STOP_MARKET",
         close_all: bool = False,
     ) -> Dict[str, Any]:
-        sp = self.round_price(symbol, stop_price)
+        sp = self._normalize_stop_price(symbol, side, stop_price, order_type)
         params = dict(
             symbol=symbol,
             side=side,
@@ -972,7 +1020,10 @@ class CoinTrader:
                         tp_price = ep * (1.0 - roi / lev)
                     side_str = cast(str, self.pos.side)
                     ok = self.exec.place_tp_close_all(self.symbol, side_str, tp_price) if self.exec else False
-                    self._log(f"TP10 set @ {tp_price} (ROI={roi*100:.1f}% lev={lev}) {'OK' if ok else 'FAIL'}")
+                    if ok:
+                        self._log(f"TP10 set @ {tp_price:.6f} (ROI={roi*100:.1f}%@lev{lev})")
+                    else:
+                        self._log(f"TP10 FAIL @ {tp_price:.6f} (ROI={roi*100:.1f}%@lev{lev})")
                 else:
                     self._log(f"skip TP10: lev={lev} entry={ep}")
             elif mode in ("BE_TRAIL", "SWING"):
