@@ -792,16 +792,16 @@ class CoinTrader:
         lev = _to_int(self.config.get('leverage', DEFAULTS['leverage']), DEFAULTS['leverage'])
         risk = float(self.config.get('risk_per_trade', DEFAULTS['risk_per_trade']))
         fee_buf = float(self.config.get('fee_buffer_pct', 0.001))
-        atr_pct_val = float(atr_pct or 0.0)
-        estimated_roi_future = atr_pct_val * lev
-        rules = self.config.get('strength_rules', {})
-        weak_if_atr = float(rules.get('weak_if_atr_pct_lt', 0.01))
-        weak_if_roi = float(rules.get('weak_if_roi_future_lt', 0.15))
+        atr_pct_val = as_float(atr_pct, 0.0)
+        estimated_roi_future = as_float(self.config.get('weak_if_roi_future_probe', atr_pct_val * lev), atr_pct_val * lev)
+        rules = self.config.get('strength_rules', {}) or {}
+        weak_if_atr = _to_float(rules.get('weak_if_atr_pct_lt', 0.01), 0.01)
+        weak_if_roi = _to_float(rules.get('weak_if_roi_future_lt', 0.15), 0.15)
         is_weak = False
         if str(self.config.get('tp_mode', '')).lower() == 'dual_strength':
             if atr_pct_val < weak_if_atr or estimated_roi_future < weak_if_roi:
                 is_weak = True
-        weak_tp_roi_pct = float(self.config.get('weak_tp_roi_pct', 0.10))
+        weak_tp_roi_pct = _to_float(self.config.get('weak_tp_roi_pct', 0.10), 0.10)
         use_trail_strong = _to_bool(self.config.get('use_trailing_on_strong', 1), True)
 
         mt = str(self.config.get('margin_type', 'ISOLATED')).upper()
@@ -873,7 +873,6 @@ class CoinTrader:
             if not od or not od.get('orderId'):
                 return 0.0
             fill_price = float(od.get('avgPrice') or od.get('price') or price)
-            allow_trailing = (not is_weak) and bool(use_trail_strong)
             self.pos = Position(
                 side=side,
                 entry=fill_price,
@@ -881,7 +880,7 @@ class CoinTrader:
                 sl=sl,
                 trailing_sl=None,
                 entry_time=pd.Timestamp.utcnow(),
-                allow_trailing=allow_trailing,
+                allow_trailing=False,
             )
             self._log(f"ENTRY {side} price={price} qty={qty:.6f}")
             if sl and self.exec:
@@ -895,7 +894,13 @@ class CoinTrader:
                     client_id=cid + "-sl",
                 )
                 if is_weak:
-                    tp_price = fill_price * (1 + weak_tp_roi_pct / lev) if side == 'LONG' else fill_price * (1 - weak_tp_roi_pct / lev)
+                    if self.pos.side == 'LONG':
+                        tp_price = self.pos.entry * (1.0 + weak_tp_roi_pct / lev)
+                        stop_side = "SELL"
+                    else:
+                        tp_price = self.pos.entry * (1.0 - weak_tp_roi_pct / lev)
+                        stop_side = "BUY"
+                    cid_tp = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
                     self.exec.stop_market(
                         self.symbol,
                         stop_side,
@@ -903,8 +908,10 @@ class CoinTrader:
                         reduce_only=True,
                         close_all=True,
                         order_type="TAKE_PROFIT_MARKET",
-                        client_id=cid + "-tp",
+                        client_id=cid_tp + "-tp",
                     )
+                else:
+                    self.pos.allow_trailing = bool(use_trail_strong)
             return safe_div((price * qty), lev)
         except BinanceAPIException as e:
             if getattr(e, "code", None) == -2019:
@@ -933,6 +940,40 @@ class CoinTrader:
                 return True, 'Hit Hard SL'
         return False, None
 
+    def _force_close_residual(self) -> None:
+        if not self.exec:
+            return
+        live = self.exec.get_position(self.symbol)
+        if not live or not live.qty:
+            return
+        flt = self.exec.symbol_filters.get(self.symbol, {}) if self.exec else {}
+        step = _to_float(flt.get('stepSize', self.config.get('stepSize', 0.0)), 0.0)
+        minq = _to_float(flt.get('minQty', self.config.get('minQty', 0.0)), 0.0)
+        raw = abs(live.qty)
+        if step > 0:
+            from engine_core import ceil_to_step
+            qty_close = max(minq, ceil_to_step(raw, step))
+        else:
+            qty_close = max(minq, raw)
+        close_side = 'SELL' if live.side == 'LONG' else 'BUY'
+        cid = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
+        try:
+            self.exec.market_close(self.symbol, close_side, qty_close, client_id=cid + "-rescue")
+        except Exception:
+            try:
+                last = self.exec.get_last_price(self.symbol)
+                stop_price = last * (0.999 if close_side == 'SELL' else 1.001)
+                self.exec.stop_market(
+                    self.symbol,
+                    close_side,
+                    stop_price,
+                    reduce_only=True,
+                    close_all=True,
+                    client_id=cid + "-rescue-stop",
+                )
+            except Exception:
+                pass
+
     def _exit_position(self, price: float, reason: str) -> None:
         if self.exec and self.pos.side and self.pos.qty:
             try:
@@ -942,6 +983,7 @@ class CoinTrader:
             close_side = 'SELL' if self.pos.side == 'LONG' else 'BUY'
             cid = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
             self.exec.market_close(self.symbol, close_side, self.pos.qty, client_id=cid)
+            self._force_close_residual()
         self._log(f"EXIT {reason} price={price:.6f}")
         self.pos = Position()  # reset
         base_cd = _to_int(self.config.get('cooldown_seconds', DEFAULTS['cooldown_seconds']), DEFAULTS['cooldown_seconds'])
@@ -955,7 +997,9 @@ class CoinTrader:
         cd = max(0, int(base_cd * mul))
         self.cooldown_until_ts = time.time() + cd
         try:
-            self._log(f"COOLDOWN until {pd.Timestamp.utcfromtimestamp(self.cooldown_until_ts).isoformat()}")
+            cd_ts = float(self.cooldown_until_ts) if self.cooldown_until_ts is not None else None
+            if cd_ts is not None:
+                self._log(f"COOLDOWN until {pd.Timestamp.utcfromtimestamp(cd_ts).isoformat()}")
         except Exception:
             pass
 
@@ -971,11 +1015,11 @@ class CoinTrader:
             last_ts = df.index[-1]
         self._on_new_bar(last_ts)
         last = df.iloc[-1]
-        price = float(last['close'])
+        price = as_float(last.get('close'), 0.0)
         htf = str(self.config.get('htf', '1h'))
+        atr = as_float(last.get('atr'), 0.0)
         if not math.isfinite(price):
             raise ValueError("Non-finite price")
-        atr = float(last['atr']) if not pd.isna(last['atr']) else 0.0
 
         self.reconcile_manual_position(kline=last.to_dict(), indicators=last.to_dict())
 
@@ -1097,9 +1141,9 @@ class CoinTrader:
             # Entry baru
             if not self.pos.side and not self._cooldown_active():
                 if long_sig:
-                    used = self._enter_position('LONG', price, atr, float(last['atr_pct']), available_balance)
+                    used = self._enter_position('LONG', price, atr, as_float(last.get('atr_pct'), 0.0), available_balance)
                 elif short_sig:
-                    used = self._enter_position('SHORT', price, atr, float(last['atr_pct']), available_balance)
+                    used = self._enter_position('SHORT', price, atr, as_float(last.get('atr_pct'), 0.0), available_balance)
             return used or 0.0
         except ZeroDivisionError as e:
             self._log(f"[{self.symbol}] ZDIV DIAG: price={price} atr={atr} entry={getattr(self.pos,'entry',None)} step={self.config.get('trailing_step')}")

@@ -158,7 +158,7 @@
     "startup_skip_bars": 0,
     "min_atr_pct": 0.0015,
     "max_atr_pct": 0.05,
-    "max_body_atr": 2.2,
+    "max_body_atr": 2.0,
     "use_htf_filter": 0,
     "cooldown_seconds": 240,
     "sl_mode": "ATR",
@@ -178,11 +178,11 @@
     },
     "ml": {
       "strict": false,
-      "score_threshold": 0.85
+      "score_threshold": 0.90
     },
     "tp_mode": "dual_strength",
     "strength_rules": {
-      "weak_if_atr_pct_lt": 0.008,
+      "weak_if_atr_pct_lt": 0.01,
       "weak_if_roi_future_lt": 0.15
     },
     "weak_tp_roi_pct": 0.1,
