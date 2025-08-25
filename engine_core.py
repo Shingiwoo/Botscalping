@@ -232,16 +232,17 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
         if short_base and ml_up_prob <= params["down_prob"]:
             score_short += params["weight"]
     thr = params["score_threshold"]
-    if params["strict"] and ml_up_prob is None:
+    if params.get("enabled", True) and params.get("strict", False) and ml_up_prob is None:
         logging.getLogger(__name__).info(f"[{symbol}] ML_WARMUP: menunda hingga model siap (strict).")
         return None
+    logging.getLogger(__name__).info(f"[{symbol}] ML use={params['enabled']} up_prob={ml_up_prob}")
     decision = None
     if score_long >= thr and score_long > score_short:
         decision = "LONG"
     elif score_short >= thr and score_short > score_long:
         decision = "SHORT"
     logging.getLogger(__name__).info(
-        f"[{symbol}] DECISION base(L={long_base},S={short_base}) up_prob={ml_up_prob} thr={thr} score(L={score_long:.2f},S={score_short:.2f}) -> {decision}"
+        f"[{symbol}] decision={decision} (long_base={long_base}, short_base={short_base})"
     )
     return decision
 
