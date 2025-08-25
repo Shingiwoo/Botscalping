@@ -317,7 +317,7 @@
     "tp_mode": "dual_strength",
     "weak_tp_roi_pct": 0.10,
     "use_trailing_on_strong": 1,
-    "use_trailing_on_weak": 0,
+    "use_trailing_on_weak": 1,
     "strength_rules": {
       "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15

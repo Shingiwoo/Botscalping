@@ -160,8 +160,8 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
         d[['open','high','low','close']] = ha[['ha_open','ha_high','ha_low','ha_close']]
 
     # EMA/MA, MACD, RSI
-    d['ema_20'] = EMAIndicator(d['close'], 20).ema_indicator()
-    d['ma_22'] = SMAIndicator(d['close'], 22).sma_indicator()
+    d['ema_20'] = EMAIndicator(d['close'], 10).ema_indicator()
+    d['ma_22'] = SMAIndicator(d['close'], 15).sma_indicator()
     macd = MACD(d['close'])
     d['macd'] = macd.macd()
     d['macd_signal'] = macd.macd_signal()
