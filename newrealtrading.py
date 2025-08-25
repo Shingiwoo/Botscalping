@@ -57,7 +57,8 @@ from engine_core import (
     load_coin_config, merge_config, compute_indicators as calculate_indicators,
     htf_trend_ok, r_multiple, apply_breakeven_sl, roi_frac_now, base_supports_side,
     safe_div, as_float, compute_base_signals_backtest, compute_base_signals_live,
-    make_decision, round_to_tick, as_scalar, USE_BACKTEST_ENTRY_LOGIC
+    make_decision, round_to_tick, as_scalar, USE_BACKTEST_ENTRY_LOGIC,
+    base_strength, ml_strength, fuse_strength, pick_mode
 )
 
 from binance.client import Client
@@ -250,11 +251,11 @@ class ExecutionClient:
         return params
 
     def _order_with_retry(self, params: Dict[str, Any], raw_qty: float, raw_price: Optional[float] = None) -> Dict[str, Any]:
+        params = self._sanitize_order_params(params)
         symbol = params.get("symbol")
         if not isinstance(symbol, str) or not symbol:
             self._log("order retry skipped: invalid symbol")
             return {}
-        params = self._sanitize_order_params(params)
         try:
             return self.client.futures_create_order(**params)
         except BinanceAPIException as e:
@@ -417,11 +418,14 @@ class ExecutionClient:
         return False
 
     def place_protective_sl_close_all(self, symbol: str, side: str, stop_price: float) -> bool:
+        if not (math.isfinite(stop_price) and stop_price > 0):
+            self._log(f"{symbol} skip SL: invalid stopPrice={stop_price}")
+            return False
         params = dict(
             symbol=symbol,
             side=("SELL" if side == "LONG" else "BUY"),
             type="STOP_MARKET",
-            stopPrice=price_to_str(stop_price, dp=8),
+            stopPrice=f"{self.round_price(symbol, stop_price):.8f}",
             workingType="MARK_PRICE",
             closePosition=True,
             timeInForce="GTC",
@@ -434,11 +438,14 @@ class ExecutionClient:
             return False
 
     def place_tp_close_all(self, symbol: str, side: str, tp_price: float) -> bool:
+        if not (math.isfinite(tp_price) and tp_price > 0):
+            self._log(f"{symbol} skip TP: invalid stopPrice={tp_price}")
+            return False
         params = dict(
             symbol=symbol,
             side=("SELL" if side == "LONG" else "BUY"),
             type="TAKE_PROFIT_MARKET",
-            stopPrice=price_to_str(tp_price, dp=8),
+            stopPrice=f"{self.round_price(symbol, tp_price):.8f}",
             workingType="MARK_PRICE",
             closePosition=True,
             timeInForce="GTC",
@@ -851,7 +858,7 @@ class CoinTrader:
     def _cooldown_active(self) -> bool:
         return bool(self.cooldown_until_ts and time.time() < self.cooldown_until_ts)
 
-    def _enter_position(self, side: str, price: float, atr: float, atr_pct: float, available_balance: float) -> float:
+    def _enter_position(self, side: str, price: float, atr: float, atr_pct: float, available_balance: float, indicators: dict, up_prob: Optional[float]) -> float:
         if self._cooldown_active():
             return 0.0
         if self.exec and self.account_guard and self.exec.has_position(self.symbol):
@@ -862,17 +869,6 @@ class CoinTrader:
         lev = _to_int(self.config.get('leverage', DEFAULTS['leverage']), DEFAULTS['leverage'])
         risk = float(_to_float(self.config.get('risk_per_trade', DEFAULTS['risk_per_trade']), DEFAULTS['risk_per_trade']))
         fee_buf = float(_to_float(self.config.get('fee_buffer_pct', 0.001), 0.001))
-        atr_pct_val = as_float(atr_pct, 0.0)
-        estimated_roi_future = as_float(self.config.get('weak_if_roi_future_probe', atr_pct_val * lev), atr_pct_val * lev)
-        rules = self.config.get('strength_rules', {}) or {}
-        weak_if_atr = _to_float(rules.get('weak_if_atr_pct_lt', 0.01), 0.01)
-        weak_if_roi = _to_float(rules.get('weak_if_roi_future_lt', 0.15), 0.15)
-        is_weak = False
-        if str(self.config.get('tp_mode', '')).lower() == 'dual_strength':
-            if atr_pct_val < weak_if_atr or estimated_roi_future < weak_if_roi:
-                is_weak = True
-        weak_tp_roi_pct = _to_float(self.config.get('weak_tp_roi_pct', 0.10), 0.10)
-        use_trail_strong = _to_bool(self.config.get('use_trailing_when_strong', self.config.get('use_trailing_on_strong', 1)), True)
 
         mt = str(self.config.get('margin_type', 'ISOLATED')).upper()
         try:
@@ -960,20 +956,30 @@ class CoinTrader:
                 self._log(f"SL protect {'OK' if ok else 'FAIL'} @ {sl}")
             else:
                 self._log("SKIP SL: sl=None (cek config/indikator)")
-            if is_weak:
-                self.pos.allow_trailing = bool(self.config.get("use_trailing_on_weak", 0))
+            b_s = base_strength(indicators, self.pos.side)
+            m_s = ml_strength(up_prob, self.pos.side)
+            comb = fuse_strength(b_s, m_s, w_base=0.6, w_ml=0.4)
+            mode = pick_mode(comb, b_s, m_s)
+            lev = max(1, int(lev))
+            self.pos.allow_trailing = False
+            if mode == "TP10":
                 ep = as_float(self.pos.entry, 0.0)
-                tp_roi = _to_float(self.config.get("weak_tp_roi_pct", 0.10), 0.10)
-                if self.pos.side == 'LONG':
-                    tp_price = ep * (1.0 + tp_roi / lev)
+                roi = _to_float(self.config.get("weak_tp_roi_pct", 0.10), 0.10)
+                if lev > 0 and ep > 0 and math.isfinite(ep):
+                    if self.pos.side == "LONG":
+                        tp_price = ep * (1.0 + roi / lev)
+                    else:
+                        tp_price = ep * (1.0 - roi / lev)
+                    side_str = cast(str, self.pos.side)
+                    ok = self.exec.place_tp_close_all(self.symbol, side_str, tp_price) if self.exec else False
+                    self._log(f"TP10 set @ {tp_price} (ROI={roi*100:.1f}% lev={lev}) {'OK' if ok else 'FAIL'}")
                 else:
-                    tp_price = ep * (1.0 - tp_roi / lev)
-                assert self.pos.side is not None, "side None di fase entry — ini tak boleh terjadi"
-                side_str = cast(str, self.pos.side)
-                ok = self.exec.place_tp_close_all(self.symbol, side_str, tp_price) if self.exec else False
-                self._log(f"TP weak(ROI={tp_roi*100:.1f}%@lev{lev}) {'OK' if ok else 'FAIL'} @ {tp_price}")
+                    self._log(f"skip TP10: lev={lev} entry={ep}")
+            elif mode in ("BE_TRAIL", "SWING"):
+                self.pos.allow_trailing = True
+                self._log(f"Mode {mode}")
             else:
-                self.pos.allow_trailing = bool(use_trail_strong)
+                self._log(f"Mode {mode}: tanpa TP tambahan")
             return safe_div((price * qty), lev)
         except BinanceAPIException as e:
             if getattr(e, "code", None) == -2019:
@@ -1218,9 +1224,9 @@ class CoinTrader:
             # Entry baru
             if not self.pos.side and not self._cooldown_active():
                 if long_sig:
-                    used = self._enter_position('LONG', price, atr, as_float(last.get('atr_pct'), 0.0), available_balance)
+                    used = self._enter_position('LONG', price, atr, as_float(last.get('atr_pct'), 0.0), available_balance, last.to_dict(), up_prob)
                 elif short_sig:
-                    used = self._enter_position('SHORT', price, atr, as_float(last.get('atr_pct'), 0.0), available_balance)
+                    used = self._enter_position('SHORT', price, atr, as_float(last.get('atr_pct'), 0.0), available_balance, last.to_dict(), up_prob)
             return used or 0.0
         except ZeroDivisionError as e:
             self._log(f"[{self.symbol}] ZDIV DIAG: price={price} atr={atr} entry={getattr(self.pos,'entry',None)} step={self.config.get('trailing_step')}")
@@ -1328,7 +1334,7 @@ class TradingManager:
                                 elif k in int_keys:
                                     trader.config[k] = _to_int(v, _to_int(trader.config.get(k, 0), 0))
                                 elif k in bool_keys:
-                                    trader.config[k] = _to_bool(v)
+                                    trader.config[k] = _to_bool(v, _to_bool(trader.config.get(k, False), False))
                                 else:
                                     trader.config[k] = v
                         # sinkron threshold ke plugin

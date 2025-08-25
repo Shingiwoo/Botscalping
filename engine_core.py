@@ -203,6 +203,102 @@ def compute_base_signals_live(df: pd.DataFrame) -> tuple[bool, bool]:
     return bool(long_base), bool(short_base)
 
 
+# === Grading kekuatan sinyal (BASE & ML) + fusi & pemilih mode ===
+
+def base_strength(ind: dict, side_hint: str | None) -> float:
+    """
+    Skor 0..1 berdasarkan komponen base. Bobot:
+    +0.40 trend EMA vs MA searah side
+    +0.30 MACD > Signal (long) / < (short)
+    +0.20 RSI di zona sehat (long: 40–70, short: 30–60)
+    +0.10 ATR% & body/ATR di koridor sehat (sudah difilter)
+    """
+    if not ind:
+        return 0.0
+    s = 0.0
+    up = (side_hint == "LONG")
+    ema = as_float(ind.get("ema"), 0.0)
+    ma = as_float(ind.get("ma"), 0.0)
+    macd = as_float(ind.get("macd"), 0.0)
+    macd_sig = as_float(ind.get("macd_signal"), 0.0)
+    rsi = as_float(ind.get("rsi"), 50.0)
+    atr_pct = as_float(ind.get("atr_pct"), 0.0)
+    body_atr = as_float(ind.get("body_to_atr"), 0.0)
+
+    if up and ema > ma:
+        s += 0.40
+    if not up and ema < ma:
+        s += 0.40
+    if up and macd > macd_sig:
+        s += 0.30
+    if not up and macd < macd_sig:
+        s += 0.30
+    if up and 40.0 <= rsi <= 70.0:
+        s += 0.20
+    if not up and 30.0 <= rsi <= 60.0:
+        s += 0.20
+    if 0.0005 <= atr_pct <= 0.03 and body_atr <= 2.0:
+        s += 0.10
+
+    return max(0.0, min(1.0, s))
+
+
+def ml_strength(up_prob: float | None, side_hint: str | None) -> float:
+    """
+    Skor 0..1 dari probabilitas ML.
+    Ambang:
+      LONG: 0.50–0.55 lemah, 0.55–0.60 netral, 0.60–0.65 cukup, >0.65 kuat
+      SHORT: mirror kebawah (0.50..0.35..)
+    """
+    if up_prob is None or side_hint is None:
+        return 0.0
+    if side_hint == "LONG":
+        p = up_prob
+        if p < 0.50:
+            return 0.0
+        if p < 0.55:
+            return 0.25
+        if p < 0.60:
+            return 0.50
+        if p < 0.65:
+            return 0.75
+        return 1.0
+    else:
+        p = up_prob
+        if p > 0.50:
+            return 0.0
+        if p > 0.45:
+            return 0.25
+        if p > 0.40:
+            return 0.50
+        if p > 0.35:
+            return 0.75
+        return 1.0
+
+
+def fuse_strength(base_s: float, ml_s: float, w_base: float = 0.6, w_ml: float = 0.4) -> float:
+    return max(0.0, min(1.0, w_base * as_float(base_s, 0.0) + w_ml * as_float(ml_s, 0.0)))
+
+
+def pick_mode(combined: float, base_s: float, ml_s: float) -> str:
+    """
+    Kembalikan salah satu:
+      - "SKIP"     : combined < 0.45
+      - "TP10"     : 0.45–<0.60 (TP ROI 10%, BE aktif, trailing OFF)
+      - "BE_TRAIL" : 0.60–<0.80 (BE+Trailing)
+      - "SWING"    : >=0.80 DAN (base kuat & ml kuat)
+    """
+    if combined < 0.45:
+        return "SKIP"
+    if combined < 0.60:
+        return "TP10"
+    if combined < 0.80:
+        return "BE_TRAIL"
+    if base_s >= 0.75 and ml_s >= 0.75:
+        return "SWING"
+    return "BE_TRAIL"
+
+
 ML_WEIGHT = float(os.getenv("ML_WEIGHT", "1.2"))
 
 
