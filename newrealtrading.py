@@ -8,7 +8,7 @@
 from __future__ import annotations
 import os, json, time, math, threading, random, string
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List, cast
 from uuid import uuid4
 
 import pandas as pd
@@ -146,14 +146,14 @@ class ExecutionClient:
         flt = self.symbol_filters.get(symbol)
         if not flt:
             raise ValueError(f"symbol {symbol} tidak dikenal")
-        return float(flt.get("stepSize") or 0.0)
+        return float(_to_float(flt.get("stepSize"), 0.0))
 
     def get_tick_size(self, symbol: str) -> float:
         symbol = (symbol or "").upper()
         flt = self.symbol_filters.get(symbol)
         if not flt:
             raise ValueError(f"symbol {symbol} tidak dikenal")
-        return float(flt.get("tickSize") or 0.0)
+        return float(_to_float(flt.get("tickSize"), 0.0))
 
     def round_qty(self, symbol: str, qty: float) -> float:
         symbol = (symbol or "").upper()
@@ -174,7 +174,7 @@ class ExecutionClient:
     def _qty_to_str(self, symbol: str, qty: float) -> str:
         flt = self.symbol_filters.get(symbol.upper(), {})
         qprec = int(flt.get("quantityPrecision") or 0)
-        step = float(flt.get("stepSize") or 0.0)
+        step = float(_to_float(flt.get("stepSize"), 0.0))
         base = float(_to_float(qty, 0.0))
         q = floor_to_step(base + 1e-12, step) if step > 0 else base
         return f"{q:.{qprec}f}"
@@ -202,7 +202,7 @@ class ExecutionClient:
     def has_position(self, symbol: str) -> bool:
         try:
             pos = self.client.futures_position_information(symbol=symbol)
-            qty = float(pos[0].get("positionAmt", 0.0))
+            qty = float(_to_float(pos[0].get("positionAmt"), 0.0))
             return abs(qty) > 0.0
         except Exception:
             return False
@@ -214,11 +214,11 @@ class ExecutionClient:
         try:
             bal = self.client.futures_account_balance()
             usdt = next((b for b in bal if b.get("asset") == "USDT"), None)
-            return float(usdt.get("availableBalance", 0.0)) if usdt else 0.0
+            return float(_to_float(usdt.get("availableBalance"), 0.0)) if usdt else 0.0
         except Exception:
             try:
                 acc = self.client.futures_account()
-                return float(acc.get("availableBalance", 0.0))
+                return float(_to_float(acc.get("availableBalance"), 0.0))
             except Exception:
                 return 0.0
 
@@ -249,13 +249,11 @@ class ExecutionClient:
 
         return params
 
-    def _order_with_retry(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _order_with_retry(self, params: Dict[str, Any], raw_qty: float, raw_price: Optional[float] = None) -> Dict[str, Any]:
         symbol = params.get("symbol")
         if not isinstance(symbol, str) or not symbol:
             self._log("order retry skipped: invalid symbol")
             return {}
-        raw_qty = float(params.get("quantity") or 0.0)
-        raw_price = float(params.get("stopPrice") or params.get("price") or 0.0)
         params = self._sanitize_order_params(params)
         try:
             return self.client.futures_create_order(**params)
@@ -264,10 +262,9 @@ class ExecutionClient:
                 flt = self.symbol_filters.get(symbol.upper(), {})
                 self._log(f"[ROUND-RETRY] {symbol}: raw_qty={raw_qty} step={flt.get('stepSize')} qPrec={flt.get('quantityPrecision')} -> retry")
                 self._load_filters(log=False)
-                if raw_qty > 0:
-                    params["quantity"] = self._qty_to_str(symbol, raw_qty)
-                if raw_price:
-                    params["stopPrice"] = price_to_str(self.round_price(symbol, raw_price), 8)
+                params["quantity"] = self._qty_to_str(symbol, raw_qty)
+                if raw_price is not None:
+                    params["stopPrice"] = f"{self.round_price(symbol, raw_price):.8f}"
                 params = self._sanitize_order_params(params)
                 try:
                     return self.client.futures_create_order(**params)
@@ -289,7 +286,7 @@ class ExecutionClient:
             info = self.position_info(symbol) or {}
         except Exception:
             info = {}
-        pos_amt = float(info.get("positionAmt") or 0.0)
+        pos_amt = float(_to_float(info.get("positionAmt"), 0.0))
         if abs(pos_amt) < 1e-12:
             if self.verbose:
                 print(f"[EXEC] SKIP close: no open position for {symbol}")
@@ -297,7 +294,7 @@ class ExecutionClient:
         expected_side = "SELL" if pos_amt > 0 else "BUY"
         if side != expected_side:
             side = expected_side
-        allowed = min(abs(pos_amt), float(req_qty or 0.0))
+        allowed = min(abs(pos_amt), float(_to_float(req_qty, 0.0)))
         allowed = self.round_qty(symbol, allowed)
         return side, allowed
 
@@ -314,7 +311,7 @@ class ExecutionClient:
         )
         if client_id:
             params["newClientOrderId"] = client_id
-        o = self._order_with_retry(params)
+        o = self._order_with_retry(params, r_qty)
         if self.verbose and o:
             print(f"[EXEC] MARKET ENTRY {symbol} {side} {r_qty} -> orderId={o.get('orderId')}")
         return o
@@ -342,17 +339,17 @@ class ExecutionClient:
             workingType="MARK_PRICE",
             timeInForce="GTC",
         )
+        raw_for_retry = float(_to_float(qty, 0.0)) if qty is not None else 0.0
         if not close_all:
-            raw_qty = float(qty or 0.0)
-            r_qty = self.round_qty(symbol, raw_qty)
+            r_qty = self.round_qty(symbol, raw_for_retry)
             if r_qty <= 0:
-                self._log(f"SKIP stop: qty<minQty (raw={raw_qty})")
+                self._log(f"SKIP stop: qty<minQty (raw={raw_for_retry})")
                 return {}
             params["quantity"] = self._qty_to_str(symbol, r_qty)
         if client_id:
             params["newClientOrderId"] = client_id
         try:
-            o = self._order_with_retry(params)
+            o = self._order_with_retry(params, raw_for_retry, stop_price)
             if self.verbose and o:
                 print(
                     f"[EXEC] {order_type} {symbol} {side} stop={sp} closePos={params['closePosition']} -> orderId={o.get('orderId')}"
@@ -390,7 +387,7 @@ class ExecutionClient:
         """Alias lama -> ambil mark price sebagai 'last' untuk keperluan kalkulasi cepat."""
         try:
             mp = self.client.futures_mark_price(symbol=symbol)
-            return float(mp.get("markPrice") or mp.get("price") or 0.0)
+            return float(_to_float(mp.get("markPrice") or mp.get("price"), 0.0))
         except Exception:
             return 0.0
 
@@ -399,11 +396,11 @@ class ExecutionClient:
             info = self.position_info(symbol) or {}
         except Exception:
             info = {}
-        amt = float(info.get("positionAmt", 0) or 0)
+        amt = float(_to_float(info.get("positionAmt"), 0.0))
         if abs(amt) < 1e-12:
             return None
-        entry = float(info.get("entryPrice") or 0) or float(info.get("markPrice") or 0)
-        lev = int(float(info.get("leverage") or 1))
+        entry = float(_to_float(info.get("entryPrice"), 0.0)) or float(_to_float(info.get("markPrice"), 0.0))
+        lev = int(float(_to_float(info.get("leverage"), 1.0)))
         side = "LONG" if amt > 0 else "SHORT"
         return LivePos(side=side, qty=abs(amt), entry_price=entry, leverage=lev)
 
@@ -430,7 +427,7 @@ class ExecutionClient:
             timeInForce="GTC",
         )
         try:
-            o = self._order_with_retry(params)
+            o = self._order_with_retry(params, 0.0, stop_price)
             return bool(o)
         except Exception as e:
             self._log(f"protective SL fail: {e}")
@@ -447,7 +444,7 @@ class ExecutionClient:
             timeInForce="GTC",
         )
         try:
-            o = self._order_with_retry(params)
+            o = self._order_with_retry(params, 0.0, tp_price)
             return bool(o)
         except Exception as e:
             self._log(f"protective TP fail: {e}")
@@ -458,7 +455,7 @@ class ExecutionClient:
             info = self.position_info(symbol) or {}
         except Exception:
             info = {}
-        pos_amt = float(info.get("positionAmt") or 0.0)
+        pos_amt = float(_to_float(info.get("positionAmt"), 0.0))
         if abs(pos_amt) <= 0.0:
             self._log(f"SKIP close: no open position for {symbol}")
             return {}
@@ -475,7 +472,7 @@ class ExecutionClient:
         if client_id:
             params["newClientOrderId"] = client_id
         try:
-            o = self._order_with_retry(params)
+            o = self._order_with_retry(params, qty_live)
             if self.verbose and o:
                 print(f"[EXEC] MARKET CLOSE {symbol} {close_side} {r_qty} -> orderId={o.get('orderId')}")
         except BinanceAPIException as e:
@@ -489,7 +486,7 @@ class ExecutionClient:
             info2 = self.position_info(symbol) or {}
         except Exception:
             info2 = {}
-        rem = abs(float(info2.get("positionAmt") or 0.0))
+        rem = abs(float(_to_float(info2.get("positionAmt"), 0.0)))
         if rem >= step / 2:
             r2 = self.round_qty(symbol, rem)
             if r2 > 0:
@@ -497,7 +494,7 @@ class ExecutionClient:
                 if client_id:
                     params["newClientOrderId"] = f"{client_id}-r"
                 try:
-                    o = self._order_with_retry(params)
+                    o = self._order_with_retry(params, rem)
                     if self.verbose and o:
                         print(f"[EXEC] MARKET CLOSE RETRY {symbol} {close_side} {r2} -> orderId={o.get('orderId')}")
                 except Exception as e:
@@ -506,11 +503,11 @@ class ExecutionClient:
                     info2 = self.position_info(symbol) or {}
                 except Exception:
                     info2 = {}
-                rem = abs(float(info2.get("positionAmt") or 0.0))
-        min_qty = float(self.symbol_filters.get(symbol.upper(), {}).get("minQty") or 0.0)
+                rem = abs(float(_to_float(info2.get("positionAmt"), 0.0)))
+        min_qty = float(_to_float(self.symbol_filters.get(symbol.upper(), {}).get("minQty"), 0.0))
         if 0 < rem < min_qty:
             try:
-                mark = float(self.client.futures_mark_price(symbol=symbol).get("markPrice"))
+                mark = float(_to_float(self.client.futures_mark_price(symbol=symbol).get("markPrice"), 0.0))
             except Exception:
                 mark = 0.0
             tick = self.get_tick_size(symbol)
@@ -526,7 +523,7 @@ class ExecutionClient:
                 timeInForce="GTC",
             )
             try:
-                self._order_with_retry(params2)
+                self._order_with_retry(params2, 0.0, sp)
                 if self.verbose:
                     print(f"[EXEC] DUST SWEEP {symbol} {close_side} stop={sp}")
             except Exception as e:
@@ -616,7 +613,7 @@ class CoinTrader:
         self.pending_skip_entries = self.startup_skip_bars
         self.rehydrated = False
         self.rehydrate_protect_profit = bool(self.config.get('rehydrate_protect_profit', True))
-        self.rehydrate_profit_min_pct = float(self.config.get('rehydrate_profit_min_pct', 0.0005))
+        self.rehydrate_profit_min_pct = float(_to_float(self.config.get('rehydrate_profit_min_pct', 0.0005), 0.0005))
         self.signal_confirm_bars_after_restart = int(self.config.get('signal_confirm_bars_after_restart', 2))
         self.signal_flip_confirm_left = 0
 
@@ -798,13 +795,13 @@ class CoinTrader:
     def _calc_sl_on_attach(self, live: LivePos, indicators: dict) -> float:
         mode = (self.config.get("manual_guard", {}).get("sl_on_attach_mode", "ATR") or "ATR").upper()
         entry = live.entry_price
-        atr = float(indicators.get("atr") or 0)
-        sl_min = float(self.config.get("manual_guard", {}).get("sl_min_pct", 0.010))
-        sl_max = float(self.config.get("manual_guard", {}).get("sl_max_pct", 0.030))
+        atr = float(_to_float(indicators.get("atr"), 0.0))
+        sl_min = float(_to_float(self.config.get("manual_guard", {}).get("sl_min_pct", 0.010), 0.010))
+        sl_max = float(_to_float(self.config.get("manual_guard", {}).get("sl_max_pct", 0.030), 0.030))
         if mode == "PCT" or atr <= 0:
-            sl_pct = float(self.config.get("manual_guard", {}).get("sl_on_attach_pct", 0.012))
+            sl_pct = float(_to_float(self.config.get("manual_guard", {}).get("sl_on_attach_pct", 0.012), 0.012))
         else:
-            mult = float(self.config.get("manual_guard", {}).get("sl_on_attach_atr_mult", 1.6))
+            mult = float(_to_float(self.config.get("manual_guard", {}).get("sl_on_attach_atr_mult", 1.6), 1.6))
             sl_pct = (mult * (atr / entry)) if entry else 0.0
         sl_pct = max(sl_min, min(sl_pct, sl_max))
         if live.side == "LONG":
@@ -832,11 +829,15 @@ class CoinTrader:
                 if not self.exec.has_active_sl_close_all(self.symbol):
                     stop = self._calc_sl_on_attach(live, indicators)
                     if stop is not None:
-                        ok = self.exec.place_protective_sl_close_all(self.symbol, live.side, stop)
-                        if ok:
-                            self._log(f"[{self.symbol}] Protective SL placed on attach @ {stop}")
+                        side_str = cast(str, self.pos.side or (live.side if live else None))
+                        if side_str is None:
+                            self._log("Skip set SL/TP: unknown side (no live position)")
                         else:
-                            self._log(f"[{self.symbol}] FAILED place protective SL on attach")
+                            ok = self.exec.place_protective_sl_close_all(self.symbol, side_str, stop)
+                            if ok:
+                                self._log(f"[{self.symbol}] Protective SL placed on attach @ {stop}")
+                            else:
+                                self._log(f"[{self.symbol}] FAILED place protective SL on attach")
             return
         if have_state and (live is None):
             self._log(f"[{self.symbol}] Live flat but state had pos -> clearing state")
@@ -859,8 +860,8 @@ class CoinTrader:
 
         side_binance = "BUY" if side == "LONG" else "SELL"
         lev = _to_int(self.config.get('leverage', DEFAULTS['leverage']), DEFAULTS['leverage'])
-        risk = float(self.config.get('risk_per_trade', DEFAULTS['risk_per_trade']))
-        fee_buf = float(self.config.get('fee_buffer_pct', 0.001))
+        risk = float(_to_float(self.config.get('risk_per_trade', DEFAULTS['risk_per_trade']), DEFAULTS['risk_per_trade']))
+        fee_buf = float(_to_float(self.config.get('fee_buffer_pct', 0.001), 0.001))
         atr_pct_val = as_float(atr_pct, 0.0)
         estimated_roi_future = as_float(self.config.get('weak_if_roi_future_probe', atr_pct_val * lev), atr_pct_val * lev)
         rules = self.config.get('strength_rules', {}) or {}
@@ -871,7 +872,7 @@ class CoinTrader:
             if atr_pct_val < weak_if_atr or estimated_roi_future < weak_if_roi:
                 is_weak = True
         weak_tp_roi_pct = _to_float(self.config.get('weak_tp_roi_pct', 0.10), 0.10)
-        use_trail_strong = _to_bool(self.config.get('use_trailing_on_strong', 1), True)
+        use_trail_strong = _to_bool(self.config.get('use_trailing_when_strong', self.config.get('use_trailing_on_strong', 1)), True)
 
         mt = str(self.config.get('margin_type', 'ISOLATED')).upper()
         try:
@@ -915,7 +916,7 @@ class CoinTrader:
             qty = shrunk
             need = safe_div((price * qty), lev) * (1.0 + fee_buf)
 
-        min_not = float(self.config.get("minNotional", 0.0) or 0.0)
+        min_not = float(_to_float(self.config.get("minNotional", 0.0), 0.0))
         if min_not > 0 and price * qty < min_not:
             step = self.exec.get_step_size(self.symbol) if self.exec else _to_float(self.config.get("stepSize", 0.0), 0.0)
             need_qty = safe_div(min_not, price)
@@ -941,7 +942,7 @@ class CoinTrader:
             od = self.exec.market_entry(self.symbol, side_binance, qty, client_id=cid) if self.exec else {}
             if not od or not od.get('orderId'):
                 return 0.0
-            fill_price = float(od.get('avgPrice') or od.get('price') or price)
+            fill_price = float(_to_float(od.get('avgPrice') or od.get('price') or price, price))
             self.pos = Position(
                 side=side,
                 entry=fill_price,
@@ -953,7 +954,9 @@ class CoinTrader:
             )
             self._log(f"ENTRY {side} price={price} qty={qty:.6f}")
             if sl is not None and self.exec:
-                ok = self.exec.place_protective_sl_close_all(self.symbol, self.pos.side, sl)
+                assert self.pos.side is not None, "side None di fase entry — ini tak boleh terjadi"
+                side_str = cast(str, self.pos.side)
+                ok = self.exec.place_protective_sl_close_all(self.symbol, side_str, sl)
                 self._log(f"SL protect {'OK' if ok else 'FAIL'} @ {sl}")
             else:
                 self._log("SKIP SL: sl=None (cek config/indikator)")
@@ -965,7 +968,9 @@ class CoinTrader:
                     tp_price = ep * (1.0 + tp_roi / lev)
                 else:
                     tp_price = ep * (1.0 - tp_roi / lev)
-                ok = self.exec.place_tp_close_all(self.symbol, self.pos.side, tp_price) if self.exec else False
+                assert self.pos.side is not None, "side None di fase entry — ini tak boleh terjadi"
+                side_str = cast(str, self.pos.side)
+                ok = self.exec.place_tp_close_all(self.symbol, side_str, tp_price) if self.exec else False
                 self._log(f"TP weak(ROI={tp_roi*100:.1f}%@lev{lev}) {'OK' if ok else 'FAIL'} @ {tp_price}")
             else:
                 self.pos.allow_trailing = bool(use_trail_strong)
@@ -1260,17 +1265,17 @@ class TradingManager:
         info = trader.exec.position_info(trader.symbol)
         if not info:
             return
-        qty = float(info.get('positionAmt', 0) or 0)
+        qty = float(_to_float(info.get('positionAmt'), 0.0))
         if abs(qty) < 1e-12:
             return
-        entry_price = float(info.get('entryPrice', 0) or 0)
+        entry_price = float(_to_float(info.get('entryPrice'), 0.0))
         side = 'LONG' if qty > 0 else 'SHORT'
         qty = abs(qty)
         orders = trader.exec.open_orders(trader.symbol) or []
         sl_price = None
         for o in orders:
             if o.get('type') == 'STOP_MARKET' and o.get('reduceOnly'):
-                sp = float(o.get('stopPrice', 0) or 0)
+                sp = float(_to_float(o.get('stopPrice'), 0.0))
                 if sp > 0:
                     sl_price = sp
                     break
