@@ -77,6 +77,14 @@ def safe_fetch_klines(client, symbol: str, interval: str, limit: int):
             if attempt == HTTP_RETRIES - 1:
                 raise
             time.sleep(HTTP_BACKOFF * (attempt + 1))
+
+from typing import Optional
+
+def price_to_str(p: Optional[float], dp: int = 8) -> str:
+    if p is None:
+        raise ValueError("price_to_str: 'p' tidak boleh None")
+    return f"{float(p):.{dp}f}"
+
 class ExecutionClient:
     def __init__(self, api_key: str, api_secret: str, testnet: bool=False, verbose: bool=False):
         self.client = Client(api_key, api_secret, testnet=testnet,
@@ -136,7 +144,7 @@ class ExecutionClient:
         symbol = (symbol or "").upper()
         if not symbol:
             raise ValueError("symbol is required")
-        qty = as_scalar(qty)
+        qty = _to_float(qty, 0.0)
         step = self.get_step_size(symbol)
         return floor_to_step(qty, step)
 
@@ -144,9 +152,17 @@ class ExecutionClient:
         symbol = (symbol or "").upper()
         if not symbol:
             raise ValueError("symbol is required")
-        price = as_scalar(price)
+        price = _to_float(price, 0.0)
         tick = self.get_tick_size(symbol)
         return round_to_tick(price, tick)
+
+    def _qty_to_str(self, symbol: str, qty: float) -> str:
+        flt = self.symbol_filters.get(symbol.upper(), {})
+        qprec = int(flt.get("quantityPrecision") or 0)
+        step = float(flt.get("stepSize") or 0.0)
+        base = _to_float(qty, 0.0)
+        q = floor_to_step(base + 1e-12, step) if step > 0 else base
+        return f"{q:.{qprec}f}"
 
     def set_leverage(self, symbol: str, leverage: int):
         try:
@@ -203,9 +219,9 @@ class ExecutionClient:
                 flt = self.symbol_filters.get(symbol.upper(), {})
                 self._log(f"[ROUND-RETRY] {symbol}: raw_qty={raw_qty} step={flt.get('stepSize')} qPrec={flt.get('quantityPrecision')} -> retry")
                 self._load_filters(log=False)
-                params["quantity"] = self.round_qty(symbol, raw_qty)
+                params["quantity"] = self._qty_to_str(symbol, raw_qty)
                 if raw_price is not None:
-                    params["stopPrice"] = f"{self.round_price(symbol, raw_price):.8f}"
+                    params["stopPrice"] = price_to_str(self.round_price(symbol, raw_price), 8)
                 try:
                     return self.client.futures_create_order(**params)
                 except Exception as e2:
@@ -243,7 +259,7 @@ class ExecutionClient:
         if r_qty <= 0:
             self._log(f"SKIP entry: qty<minQty (raw={qty})")
             return {}
-        params = dict(symbol=symbol, side=side, type="MARKET", quantity=r_qty, reduceOnly=False)
+        params = dict(symbol=symbol, side=side, type="MARKET", quantity=self._qty_to_str(symbol, qty), reduceOnly=False)
         if client_id:
             params["newClientOrderId"] = client_id
         o = self._order_with_retry(params, qty)
@@ -251,14 +267,16 @@ class ExecutionClient:
             print(f"[EXEC] MARKET ENTRY {symbol} {side} {r_qty} -> orderId={o.get('orderId')}")
         return o
 
-    def stop_market(self, symbol: str, side: str, stop_price: float, qty: float, reduce_only: bool=True, client_id: Optional[str]=None) -> Dict[str, Any]:
+    def stop_market(self, symbol: str, side: str, stop_price: float, qty: float, reduce_only: bool=True, close_position: bool=False, client_id: Optional[str]=None) -> Dict[str, Any]:
         raw_qty = qty
         raw_price = stop_price
-        if reduce_only:
+        if close_position:
+            r_qty = 0.0
+        elif reduce_only:
             side, r_qty = self._clamp_reduceonly_qty(symbol, side, qty)
         else:
             r_qty = self.round_qty(symbol, qty)
-        if r_qty <= 0:
+        if not close_position and r_qty <= 0:
             self._log(f"SKIP stop: qty<minQty (raw={raw_qty})")
             return {}
         sp = self.round_price(symbol, stop_price)
@@ -266,13 +284,14 @@ class ExecutionClient:
             symbol=symbol,
             side=side,
             type="STOP_MARKET",
-            stopPrice=f"{sp:.8f}",
-            closePosition=False,
-            quantity=r_qty,
+            stopPrice=price_to_str(sp, 8),
+            closePosition=close_position,
             reduceOnly=reduce_only,
             workingType="MARK_PRICE",
             timeInForce="GTC",
         )
+        if not close_position:
+            params["quantity"] = self._qty_to_str(symbol, r_qty)
         if client_id:
             params["newClientOrderId"] = client_id
         try:
@@ -303,6 +322,16 @@ class ExecutionClient:
     def open_orders(self, symbol: str):
         return self.client.futures_get_open_orders(symbol=symbol)
 
+    def get_position(self, symbol: str):
+        return self.position_info(symbol)
+
+    def get_last_price(self, symbol: str) -> float:
+        try:
+            mp = self.client.futures_mark_price(symbol=symbol)
+            return float(mp.get("markPrice") or mp.get("price") or 0.0)
+        except Exception:
+            return 0.0
+
     def market_close(self, symbol: str, side: str, qty: float, client_id: Optional[str]=None) -> Dict[str, Any]:
         raw_qty = qty
         side, r_qty = self._clamp_reduceonly_qty(symbol, side, qty)
@@ -313,7 +342,7 @@ class ExecutionClient:
             symbol=symbol,
             side=side,
             type="MARKET",
-            quantity=r_qty,
+            quantity=self._qty_to_str(symbol, r_qty),
             reduceOnly=True,
         )
         if client_id:
@@ -322,13 +351,38 @@ class ExecutionClient:
             o = self._order_with_retry(params, r_qty)
             if self.verbose and o:
                 print(f"[EXEC] MARKET CLOSE {symbol} {side} {r_qty} -> orderId={o.get('orderId')}")
-            return o
         except BinanceAPIException as e:
             if getattr(e, "code", None) == -2022 and "ReduceOnly" in str(e):
                 if self.verbose:
                     print(f"[EXEC] MARKET CLOSE ignore -2022 (no position to reduce) {symbol}")
-                return {}
-            raise
+                o = {}
+            else:
+                raise
+        # dust sweep
+        try:
+            info = self.position_info(symbol) or {}
+            pos_amt = float(info.get("positionAmt") or 0.0)
+            rem = abs(pos_amt)
+            flt = self.symbol_filters.get(symbol.upper(), {})
+            min_qty = float(flt.get("minQty") or 0.0)
+            if 0 < rem < min_qty:
+                mp = self.get_last_price(symbol)
+                sp = self.round_price(symbol, mp)
+                stop_side = "SELL" if pos_amt > 0 else "BUY"
+                sweep_params = dict(
+                    symbol=symbol,
+                    side=stop_side,
+                    type="STOP_MARKET",
+                    stopPrice=price_to_str(sp,8),
+                    closePosition=True,
+                    reduceOnly=True,
+                    workingType="MARK_PRICE",
+                    timeInForce="GTC",
+                )
+                self._order_with_retry(sweep_params, rem, sp)
+        except Exception:
+            pass
+        return o
 
 __all__ = [
     "ExecutionClient",
@@ -462,16 +516,10 @@ class CoinTrader:
         roundtrip_fee_pct = taker_fee * 2.0 * 100.0
         roundtrip_slip_pct = slippage_pct * 2.0
         safe_buffer_pct = roundtrip_fee_pct + roundtrip_slip_pct + 0.05
-        trailing_trigger = _to_float(
-            self.config.get('trailing_trigger', DEFAULTS['trailing_trigger']),
-            DEFAULTS['trailing_trigger']
-        )
-        if 'trailing_step' in self.config:
-            trailing_step_val = self.config.get('trailing_step')
-        else:
-            fallback_ts = self.config.get('trailing_step_min_pct', self.config.get('trail', {}).get('min_step_pct'))
-            trailing_step_val = fallback_ts if fallback_ts is not None else DEFAULTS['trailing_step']
-        trailing_step = self._clamp_pos(float(trailing_step_val), float(self.config.get('trailing_step_min', 1e-9)))
+        trailing_step = _to_float(self.config.get('trailing_step', 0.0), 0.0)
+        trailing_step_min = _to_float(self.config.get('trailing_step_min', 0.0), 0.0)
+        trailing_step = max(trailing_step, trailing_step_min)
+        trailing_trigger = _to_float(self.config.get('trailing_trigger', 0.0), 0.0)
         safe_trigger = max(trailing_trigger, safe_buffer_pct + trailing_step)
         return safe_trigger, trailing_step
 
@@ -536,9 +584,11 @@ class CoinTrader:
         if not (self.pos.entry and self.pos.side):
             return
         if self.pos.side=='LONG':
-            profit_pct = safe_div((price - self.pos.entry), self.pos.entry) * 100.0
+            e = as_float(self.pos.entry, 0.0)
+            profit_pct = safe_div((price - e), e) * 100.0
+            s = as_float(step, 0.0)
             if profit_pct >= safe_trigger:
-                new_ts = price * (1 - step/100.0)
+                new_ts = price * (1 - s/100.0)
                 prev = self.pos.trailing_sl
                 self.pos.trailing_sl = max(self.pos.trailing_sl or self.pos.sl or 0.0, new_ts)
                 if self.pos.trailing_sl != prev:
@@ -550,11 +600,13 @@ class CoinTrader:
                             pass
                         stop_side = "SELL"
                         cid = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
-                        self.exec.stop_market(self.symbol, stop_side, self.pos.trailing_sl, self.pos.qty, reduce_only=True, client_id=cid)
+                        self.exec.stop_market(self.symbol, stop_side, self.pos.trailing_sl, 0.0, reduce_only=True, close_position=True, client_id=cid)
         else:
-            profit_pct = safe_div((self.pos.entry - price), self.pos.entry) * 100.0
+            e = as_float(self.pos.entry, 0.0)
+            profit_pct = safe_div((e - price), e) * 100.0
+            s = as_float(step, 0.0)
             if profit_pct >= safe_trigger:
-                new_ts = price * (1 + step/100.0)
+                new_ts = price * (1 + s/100.0)
                 prev = self.pos.trailing_sl
                 self.pos.trailing_sl = min(self.pos.trailing_sl or self.pos.sl or 1e18, new_ts)
                 if self.pos.trailing_sl != prev:
@@ -566,7 +618,7 @@ class CoinTrader:
                             pass
                         stop_side = "BUY"
                         cid = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
-                        self.exec.stop_market(self.symbol, stop_side, self.pos.trailing_sl, self.pos.qty, reduce_only=True, client_id=cid)
+                        self.exec.stop_market(self.symbol, stop_side, self.pos.trailing_sl, 0.0, reduce_only=True, close_position=True, client_id=cid)
 
     def _cooldown_active(self) -> bool:
         return bool(self.cooldown_until_ts and time.time() < self.cooldown_until_ts)
@@ -656,7 +708,7 @@ class CoinTrader:
             self._log(f"ENTRY {side} price={price} qty={qty:.6f}")
             if sl and self.exec:
                 stop_side = 'SELL' if side == 'LONG' else 'BUY'
-                self.exec.stop_market(self.symbol, stop_side, sl, qty, reduce_only=True, client_id=cid + "-sl")
+                self.exec.stop_market(self.symbol, stop_side, sl, 0.0, reduce_only=True, close_position=True, client_id=cid + "-sl")
             return safe_div((price * qty), lev)
         except BinanceAPIException as e:
             if getattr(e, "code", None) == -2019:
