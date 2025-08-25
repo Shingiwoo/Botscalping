@@ -56,8 +56,8 @@ from engine_core import (
     _to_float, _to_int, _to_bool, floor_to_step, ceil_to_step, to_scalar, to_bool,
     load_coin_config, merge_config, compute_indicators as calculate_indicators,
     htf_trend_ok, r_multiple, apply_breakeven_sl, roi_frac_now, base_supports_side,
-    safe_div, as_float, compute_base_signals_backtest, make_decision, round_to_tick,
-    as_scalar
+    safe_div, as_float, compute_base_signals_backtest, compute_base_signals_live,
+    make_decision, round_to_tick, as_scalar, USE_BACKTEST_ENTRY_LOGIC
 )
 
 from binance.client import Client
@@ -619,20 +619,17 @@ class CoinTrader:
 
     def _safe_trailing_params(self) -> Tuple[float, float]:
         taker_fee = _to_float(self.config.get('taker_fee', DEFAULTS['taker_fee']), DEFAULTS['taker_fee'])
-        slippage_pct = _to_float(self.config.get('SLIPPAGE_PCT', ENV_DEFAULTS['SLIPPAGE_PCT']), ENV_DEFAULTS['SLIPPAGE_PCT'])
+        slippage_pct = _to_float(
+            self.config.get('SLIPPAGE_PCT', ENV_DEFAULTS['SLIPPAGE_PCT']),
+            ENV_DEFAULTS['SLIPPAGE_PCT'],
+        )
         roundtrip_fee_pct = taker_fee * 2.0 * 100.0
         roundtrip_slip_pct = slippage_pct * 2.0
         safe_buffer_pct = roundtrip_fee_pct + roundtrip_slip_pct + 0.05
-        trailing_trigger = _to_float(
-            self.config.get('trailing_trigger', DEFAULTS['trailing_trigger']),
-            DEFAULTS['trailing_trigger']
-        )
-        if 'trailing_step' in self.config:
-            trailing_step_val = self.config.get('trailing_step')
-        else:
-            fallback_ts = self.config.get('trailing_step_min_pct', self.config.get('trail', {}).get('min_step_pct'))
-            trailing_step_val = fallback_ts if fallback_ts is not None else DEFAULTS['trailing_step']
-        trailing_step = self._clamp_pos(float(trailing_step_val), float(self.config.get('trailing_step_min', 1e-9)))
+        trailing_step = _to_float(self.config.get('trailing_step', 0.0), 0.0)
+        trailing_step_min = _to_float(self.config.get('trailing_step_min', 0.0), 0.0)
+        trailing_trigger = _to_float(self.config.get('trailing_trigger', 0.0), 0.0)
+        trailing_step = max(trailing_step, trailing_step_min)
         safe_trigger = max(trailing_trigger, safe_buffer_pct + trailing_step)
         return safe_trigger, trailing_step
 
@@ -659,13 +656,14 @@ class CoinTrader:
         mode = str(self.config.get('sl_mode', DEFAULTS['sl_mode'])).upper()
         sl_min = _to_float(self.config.get('sl_min_pct', DEFAULTS['sl_min_pct']), DEFAULTS['sl_min_pct'])
         sl_max = _to_float(self.config.get('sl_max_pct', DEFAULTS['sl_max_pct']), DEFAULTS['sl_max_pct'])
+        e = as_float(entry, 0.0)
         if mode == 'PCT':
             sl_pct = _to_float(self.config.get('sl_pct', DEFAULTS['sl_pct']), DEFAULTS['sl_pct'])
         else:
             sl_atr_mult = _to_float(self.config.get('sl_atr_mult', DEFAULTS['sl_atr_mult']), DEFAULTS['sl_atr_mult'])
-            sl_pct = (sl_atr_mult * safe_div(atr, entry)) if atr>0 else _to_float(self.config.get('sl_pct', DEFAULTS['sl_pct']), DEFAULTS['sl_pct'])
+            sl_pct = (sl_atr_mult * safe_div(atr, e)) if atr>0 else _to_float(self.config.get('sl_pct', DEFAULTS['sl_pct']), DEFAULTS['sl_pct'])
         sl_pct = max(sl_min, min(sl_pct, sl_max))
-        return entry * (1 - sl_pct) if side=='LONG' else entry * (1 + sl_pct)
+        return e * (1 - sl_pct) if side=='LONG' else e * (1 + sl_pct)
 
     def _apply_breakeven(self, price: float) -> None:
         if not _to_bool(self.config.get('use_breakeven', DEFAULTS['use_breakeven']), DEFAULTS['use_breakeven']):
@@ -697,10 +695,12 @@ class CoinTrader:
         entry = self.pos.entry
         if not (entry is not None and self.pos.side and self.pos.allow_trailing):
             return
+        e = as_float(entry, 0.0)
+        s = as_float(step, 0.0)
         if self.pos.side=='LONG':
-            profit_pct = safe_div((price - float(entry)), float(entry)) * 100.0
+            profit_pct = safe_div((price - e), e) * 100.0
             if profit_pct >= safe_trigger:
-                new_ts = price * (1 - step/100.0)
+                new_ts = price * (1 - s/100.0)
                 prev = self.pos.trailing_sl
                 self.pos.trailing_sl = max(self.pos.trailing_sl or self.pos.sl or 0.0, new_ts)
                 if self.pos.trailing_sl != prev:
@@ -721,9 +721,9 @@ class CoinTrader:
                             client_id=cid,
                         )
         else:
-            profit_pct = safe_div((float(entry) - price), float(entry)) * 100.0
+            profit_pct = safe_div((e - price), e) * 100.0
             if profit_pct >= safe_trigger:
-                new_ts = price * (1 + step/100.0)
+                new_ts = price * (1 + s/100.0)
                 prev = self.pos.trailing_sl
                 self.pos.trailing_sl = min(self.pos.trailing_sl or self.pos.sl or 1e18, new_ts)
                 if self.pos.trailing_sl != prev:
@@ -912,11 +912,12 @@ class CoinTrader:
                     client_id=cid + "-sl",
                 )
                 if is_weak:
+                    ep = as_float(self.pos.entry, 0.0)
                     if self.pos.side == 'LONG':
-                        tp_price = self.pos.entry * (1.0 + weak_tp_roi_pct / lev)
+                        tp_price = ep * (1.0 + weak_tp_roi_pct / lev)
                         stop_side = "SELL"
                     else:
-                        tp_price = self.pos.entry * (1.0 - weak_tp_roi_pct / lev)
+                        tp_price = ep * (1.0 - weak_tp_roi_pct / lev)
                         stop_side = "BUY"
                     cid_tp = f"x-{self.instance_id}-{self.symbol}-{uuid4().hex[:8]}"
                     self.exec.stop_market(
@@ -1114,7 +1115,13 @@ class CoinTrader:
                     self._update_trailing(price)
                 return 0.0
 
+            if USE_BACKTEST_ENTRY_LOGIC:
+                long_base, short_base = compute_base_signals_backtest(df)
+            else:
+                long_base, short_base = compute_base_signals_live(df)
+            self._log(f"[{self.symbol}] ML use={self.ml.use_ml} up_prob={up_prob}")
             decision = make_decision(df, self.symbol, self.config, up_prob)
+            self._log(f"[{self.symbol}] decision={decision} (long_base={long_base}, short_base={short_base})")
             long_sig = decision == 'LONG'
             short_sig = decision == 'SHORT'
             # Update SL/TS saat pegang posisi
@@ -1133,15 +1140,15 @@ class CoinTrader:
             if self.pos.side and self.pos.entry_time and max_hold > 0:
                 elapsed = (pd.Timestamp.utcnow() - self.pos.entry_time).total_seconds()
                 lev = _to_int(self.config.get("leverage", DEFAULTS["leverage"]), DEFAULTS["leverage"])
-                entry = self.pos.entry
-                qty = self.pos.qty
+                entry = as_float(self.pos.entry, 0.0)
+                qty = as_float(self.pos.qty, 0.0)
                 roi_frac = 0.0
-                if entry is not None and qty is not None:
-                    init_margin = safe_div(float(entry) * float(qty), lev)
+                if entry > 0 and qty > 0:
+                    init_margin = safe_div(entry * qty, lev)
                     if self.pos.side == "LONG":
-                        roi_frac = safe_div((price - float(entry)) * float(qty), init_margin)
+                        roi_frac = safe_div((price - entry) * qty, init_margin)
                     else:
-                        roi_frac = safe_div((float(entry) - price) * float(qty), init_margin)
+                        roi_frac = safe_div((entry - price) * qty, init_margin)
                 else:
                     init_margin = 0.0
 

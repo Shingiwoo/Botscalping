@@ -78,19 +78,19 @@ def as_float(x: Any, default: float = 0.0) -> float:
 # -----------------------------------------------------
 # Konversi tipe sederhana
 # -----------------------------------------------------
-def _to_float(v: Any, d: float) -> float:
+def _to_float(v: Any, d: Any) -> float:
     try:
         return float(v)
     except Exception:
         return float(d)
 
-def _to_int(v: Any, d: int) -> int:
+def _to_int(v: Any, d: Any) -> int:
     try:
         return int(v)
     except Exception:
         return int(d)
 
-def _to_bool(v: Any, d: bool) -> bool:
+def _to_bool(v: Any, d: Any) -> bool:
     if isinstance(v, bool):
         return v
     if isinstance(v, (int, float)):
@@ -232,7 +232,7 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
         if short_base and ml_up_prob <= params["down_prob"]:
             score_short += params["weight"]
     thr = params["score_threshold"]
-    if params["strict"] and ml_up_prob is None:
+    if params.get("enabled", True) and params.get("strict", False) and ml_up_prob is None:
         logging.getLogger(__name__).info(f"[{symbol}] ML_WARMUP: menunda hingga model siap (strict).")
         return None
     decision = None

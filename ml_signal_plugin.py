@@ -37,7 +37,7 @@ class MLSignal:
         env = os.environ
 
         self.coin_cfg = cfg
-        self.thr = float(thr)
+        self.thr = float(thr or 0.0)
         self.htf = htf
         self.heikin = bool(heikin)
         self.model_path = model_path
@@ -45,11 +45,11 @@ class MLSignal:
 
         def _getf(key: str, default: float) -> float:
             v = cfg.get(key, env.get(key))
-            try: return float(v)
+            try: return float(v or 0.0)
             except Exception: return float(default)
         def _geti(key: str, default: int) -> int:
             v = cfg.get(key, env.get(key))
-            try: return int(v)
+            try: return int(v or 0)
             except Exception: return int(default)
         def _getb(key: str, default: bool) -> bool:
             v = cfg.get(key, env.get(key))
