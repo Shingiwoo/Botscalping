@@ -344,9 +344,9 @@ if selected_file:
             if short_raw and near_level(px, SUP, sr_near_pct):
                 short_raw = False; blocked_reasons_short.append('near_support')
         if use_mtf_plus:
-            if long_raw and not htf_trend_ok_multi('LONG', df.iloc[:i+1], rules=('1H','4H')):
+            if long_raw and not htf_trend_ok_multi('LONG', df.iloc[:i+1], rules=('1h','4h')):
                 long_raw = False; blocked_reasons_long.append('htf_trend_mismatch')
-            if short_raw and not htf_trend_ok_multi('SHORT', df.iloc[:i+1], rules=('1H','4H')):
+            if short_raw and not htf_trend_ok_multi('SHORT', df.iloc[:i+1], rules=('1h','4h')):
                 short_raw = False; blocked_reasons_short.append('htf_trend_mismatch')
             l_ok, s_ok = ltf_momentum_ok(df.iloc[:i+1], lookback=5, rsi_thr_long=52, rsi_thr_short=48)
             if long_raw and not l_ok:
