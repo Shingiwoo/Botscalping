@@ -4,7 +4,7 @@ import numpy as np
 import os, math, json, warnings, random
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional, cast
 from ta.trend import EMAIndicator, SMAIndicator, MACD
 from ta.volatility import BollingerBands
 from ta.momentum import RSIIndicator
@@ -234,8 +234,9 @@ if selected_file:
         try:
             roc = (df['close'].iloc[-1] / df['close'].iloc[-lookback] - 1.0) if len(df) >= lookback + 1 else 0.0
             rsi_m = RSIIndicator(df['close'], max(3, min(7, lookback))).rsi().iloc[-1]
-            long_ok = (roc > 0) and (rsi_m >= rsi_thr_long)
-            short_ok = (roc < 0) and (rsi_m <= rsi_thr_short)
+            # fix: jadikan Python bool
+            long_ok = bool((roc > 0) and (rsi_m >= rsi_thr_long))
+            short_ok = bool((roc < 0) and (rsi_m <= rsi_thr_short))
             return long_ok, short_ok
         except Exception:
             return True, True
@@ -255,7 +256,8 @@ if selected_file:
     def near_level(price: float, levels: np.ndarray, pct: float) -> bool:
         if levels is None or len(levels) == 0:
             return False
-        return np.any(np.abs((levels - price) / price) <= pct / 100.0)
+        # fix: kembalikan Python bool, bukan numpy.bool_
+        return bool(np.any(np.abs((levels - price) / price) <= pct / 100.0))
 
     def sd_bias(df: pd.DataFrame, lookback: int = 60) -> Tuple[bool, bool]:
         seg = df.tail(lookback)
@@ -318,7 +320,7 @@ if selected_file:
     # ---------- Signals + Filters ----------
     df['long_signal'] = False
     df['short_signal'] = False
-    cooldown_until_ts = None
+    cooldown_until_ts: Optional[float] = None
     # ===== Live-like execution helpers (NEW) =====
     def apply_slippage(price: float, side: str, slip_pct: float) -> float:
         return price*(1+slip_pct/100.0) if side.lower().startswith('buy') else price*(1-slip_pct/100.0)
@@ -419,15 +421,18 @@ if selected_file:
             })
 
     # ---------- Backtest (selaras real) ----------
-    in_position = False
-    position_type = None
-    entry = sl = trailing_sl = None
-    qty = 0.0
+    # typing eksplisit supaya static checker happy
+    in_position: bool = False
+    position_type: Optional[str] = None
+    entry: Optional[float] = None
+    sl: Optional[float] = None
+    trailing_sl: Optional[float] = None
+    qty: float = 0.0
     capital = float(initial_capital)
     taker_fee_val = float(taker_fee)
     trades = []
-    hold_start_ts = None
-    cooldown_until_ts = None
+    hold_start_ts: Optional[pd.Timestamp] = None
+    cooldown_until_ts: Optional[float] = None
     pending_side: Optional[str] = None
 
     # Hitung buffer minimum supaya trailing tidak rugi akibat fee+slippage
@@ -515,11 +520,12 @@ if selected_file:
                 continue
 
         # Manage
-        if in_position and entry is not None and qty > 0:
+        # tambahkan guard 'position_type is not None' agar argumen side bertipe str
+        if in_position and position_type is not None and entry is not None and qty > 0:
             # Breakeven
             if bool(use_breakeven):
                 sl = apply_breakeven_sl(
-                    side=position_type,
+                    side=position_type,  # sekarang bertipe str (bukan Optional)
                     entry=entry,
                     price=price,
                     sl=sl,
