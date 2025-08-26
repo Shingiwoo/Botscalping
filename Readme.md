@@ -118,8 +118,34 @@ Contoh key penting per simbol (disederhanakan):
   * **Breakeven** (naikkan SL ke harga masuk bila profit ≥ trigger).
   * **Trailing** (di‑arm hanya jika profit > buffer aman **fee+slip**).
   * **Time‑stop** (tutup bila durasi > `max_hold_seconds` & ROI ≥ minimum; atau aturan *loss only*).
-  * **TP dua mode**: sinyal lemah → TP tetap, sinyal kuat → trailing + BE.
+* **TP dua mode**: sinyal lemah → TP tetap, sinyal kuat → trailing + BE.
 * **Money Management**: risk % pada balance dan leverage; normalisasi qty ke **LOT\_SIZE**.
+
+### Alur Sinyal Baru (Aggregator)
+
+* Sinyal dihitung saat candle tutup, eksekusi pada open bar berikut.
+* Bobot indikator menyesuaikan kondisi volatilitas (regime LOW/MID/HIGH).
+* Penalti level berlawanan memakai toleransi otomatis berdasar ATR.
+* Volume spike dan FVG menjadi konfirmasi tambahan.
+* Jika data HTF kurang, dipakai fallback dengan diskon bobot.
+
+Preset JSON menyimpan kunci penting:
+
+```
+signal_weights, strength_thresholds, regime_bounds, weight_scale,
+sr_penalty, sd_tol_pct, vol_*, htf_rules, score_gate
+```
+
+Contoh CLI:
+
+```bash
+python tools_dryrun_summary.py \
+  --symbol ADAUSDT \
+  --csv data/ADAUSDT_15m_2025-06-01_to_2025-08-09.csv \
+  --steps 2500 --balance 20 \
+  --params-json presets/scalping_params.json \
+  --preset-key ADAUSDT_15m
+```
 
 ---
 
