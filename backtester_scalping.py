@@ -19,6 +19,7 @@ from indicators.sr_utils import (
     ltf_momentum_ok,
 )
 from optimizer.param_loader import load_params_from_csv
+from optimizer.exporter import export_params_to_coin_config
 
 """
 ============================================================
@@ -58,6 +59,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 st.set_page_config(page_title="Backtester Scalping+", layout="wide")
 st.title("⚡ Backtester — Scalping")
+
+# ========= Header: Panel Ringkasan Active Params =========
+_hdr = st.container()
 
 st.sidebar.header("📂 Data & Config")
 data_dir = st.sidebar.text_input("Folder Data CSV", value="./data")
@@ -242,6 +246,7 @@ if st.sidebar.button("Apply dari CSV"):
         use_mtf_plus = bool(overrides.get("use_mtf_plus", use_mtf_plus))
 
         st.sidebar.success("Optimized params diterapkan ✅")
+        st.session_state["active_overrides"] = overrides
     except Exception as e:
         st.sidebar.error(f"Gagal load params: {e}")
 
@@ -430,6 +435,44 @@ if selected_file:
                 'reasons': ';'.join(blocked_reasons_short) or 'blocked'
             })
 
+
+    # ========= Header Ringkasan =========
+    # susun dict ringkasan param aktif (UI + overrides)
+    active_params: Dict[str, Any] = {
+        "ema_len": ema_len, "sma_len": sma_len, "rsi_period": rsi_period,
+        "rsi_long_min": rsi_long_min, "rsi_long_max": rsi_long_max,
+        "rsi_short_min": rsi_short_min, "rsi_short_max": rsi_short_max,
+        "min_atr_pct": min_atr_pct, "max_atr_pct": max_atr_pct, "max_body_atr": max_body_atr,
+        "sl_atr_mult": sl_atr_mult, "sl_pct": sl_pct,
+        "trailing_trigger": trailing_trigger, "trailing_step": trailing_step,
+        "be_trigger_pct": be_trigger_pct,
+        "score_threshold": score_threshold,
+        "use_sr_filter": use_sr_filter, "sr_near_pct": sr_near_pct,
+        "use_mtf_plus": use_mtf_plus,
+    }
+    # tampilkan ringkasan param di header
+    with _hdr:
+        st.markdown("### 🔧 Active Params")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.write({
+                "EMA/SMA/RSI": f"{active_params['ema_len']}/{active_params['sma_len']}/{active_params['rsi_period']}",
+                "RSI LONG": f"{active_params['rsi_long_min']}..{active_params['rsi_long_max']}",
+                "RSI SHORT": f"{active_params['rsi_short_min']}..{active_params['rsi_short_max']}",
+            })
+        with c2:
+            st.write({
+                "ATR% Range": f"{active_params['min_atr_pct']:.4f}..{active_params['max_atr_pct']:.4f}",
+                "Body/ATR max": f"{active_params['max_body_atr']}",
+                "Score TH": f"{active_params['score_threshold']}",
+            })
+        with c3:
+            st.write({
+                "SL (ATR/PCT)": f"{active_params['sl_atr_mult']}x / {active_params['sl_pct']*100:.2f}%",
+                "Trailing": f"trg={active_params['trailing_trigger']}% step={active_params['trailing_step']}%",
+                "BE trigger": f"{active_params['be_trigger_pct']}%",
+            })
+        st.caption(f"SR filter={active_params['use_sr_filter']} (near={active_params['sr_near_pct']}%), MTF+={active_params['use_mtf_plus']}")
     # ---------- Backtest (selaras real) ----------
     # typing eksplisit supaya static checker happy
     in_position: bool = False
@@ -709,6 +752,36 @@ if selected_file:
 
     # ---------- Hasil ----------
     st.success(f"✅ Backtest SCALPING selesai untuk {symbol}")
+
+
+    # ========= Export Apply → coin_config.json =========
+    st.markdown("---")
+    st.subheader("💾 Apply → coin_config.json")
+    cc1, cc2, cc3 = st.columns([2,1,1])
+    with cc1:
+        coin_cfg_path = st.text_input("Path coin_config.json", value="coin_config.json")
+    with cc2:
+        exp_symbol = st.text_input("Symbol", value=str(symbol))
+    with cc3:
+        slip_pct = st.number_input("Slippage (%)", 0.0, 1.0, 0.02, 0.01)
+
+    if st.button("Apply params ke coin_config.json"):
+        try:
+            export_payload = dict(active_params)
+            export_payload.update({
+                # normalisasi nama yang dipakai legacy runner:
+                "use_breakeven": 1 if bool(use_breakeven) else 0 if "use_breakeven" in locals() else 1,
+                "slippage_pct": float(slip_pct),
+            })
+            cfg = export_params_to_coin_config(
+                coin_config_path=coin_cfg_path,
+                symbol=exp_symbol,
+                params=export_payload,
+                also_update_legacy=True
+            )
+            st.success(f"Berhasil update {coin_cfg_path} untuk {exp_symbol} ✅")
+        except Exception as e:
+            st.error(f"Gagal update coin_config.json: {e}")
     df_trades = pd.DataFrame(trades)
     wins = df_trades[df_trades['pnl']>0] if not df_trades.empty else pd.DataFrame(columns=['pnl'])
     losses = df_trades[df_trades['pnl']<=0] if not df_trades.empty else pd.DataFrame(columns=['pnl'])
