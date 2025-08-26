@@ -11,6 +11,13 @@ from ta.momentum import RSIIndicator
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 from engine_core import apply_breakeven_sl
+from indicators.sr_utils import (
+    compute_sr_levels,
+    near_level,
+    build_sr_cache,
+    htf_trend_ok_multi,
+    ltf_momentum_ok,
+)
 
 """
 ============================================================
@@ -210,60 +217,6 @@ if selected_file:
     else:
         bar_seconds = 0
 
-    # ---------- HTF/LTF helpers (NEW) ----------
-    def _resample_close(df: pd.DataFrame, rule: str) -> pd.Series:
-        tmp = df.set_index('timestamp')[['close']].copy()
-        return tmp['close'].resample(rule).last().dropna()
-
-    def htf_trend_ok(side: str, base_df: pd.DataFrame, rules: Tuple[str, str] = ("1H", "4H")) -> bool:
-        try:
-            for rule in rules:
-                htf = _resample_close(base_df, rule)
-                if len(htf) < 220:
-                    continue
-                ema50 = htf.ewm(span=50, adjust=False).mean().iloc[-1]
-                ema200 = htf.ewm(span=200, adjust=False).mean().iloc[-1]
-                cond = (ema50 >= ema200) if side == 'LONG' else (ema50 <= ema200)
-                if not cond:
-                    return False
-            return True
-        except Exception:
-            return True
-
-    def ltf_momentum_ok(df: pd.DataFrame, lookback: int = 5, rsi_thr_long: float = 52, rsi_thr_short: float = 48) -> Tuple[bool, bool]:
-        try:
-            roc = (df['close'].iloc[-1] / df['close'].iloc[-lookback] - 1.0) if len(df) >= lookback + 1 else 0.0
-            rsi_m = RSIIndicator(df['close'], max(3, min(7, lookback))).rsi().iloc[-1]
-            # fix: jadikan Python bool
-            long_ok = bool((roc > 0) and (rsi_m >= rsi_thr_long))
-            short_ok = bool((roc < 0) and (rsi_m <= rsi_thr_short))
-            return long_ok, short_ok
-        except Exception:
-            return True, True
-
-    def _swing_points(df: pd.DataFrame, lb: int = 3) -> Tuple[pd.Series, pd.Series]:
-        h, l = df['high'], df['low']
-        hh = (h.shift(1).rolling(lb).max() < h) & (h > h.shift(-1).rolling(lb).max())
-        ll = (l.shift(1).rolling(lb).min() > l) & (l < l.shift(-1).rolling(lb).min())
-        return hh.fillna(False), ll.fillna(False)
-
-    def compute_sr_levels(df: pd.DataFrame, lb: int = 3, window: int = 200, k: int = 6) -> Tuple[np.ndarray, np.ndarray]:
-        hh, ll = _swing_points(df.tail(window), lb=lb)
-        res_lvls = df['high'].tail(window)[hh.tail(window)].nlargest(k).values
-        sup_lvls = df['low'].tail(window)[ll.tail(window)].nsmallest(k).values
-        return np.array(res_lvls, dtype=float), np.array(sup_lvls, dtype=float)
-
-    def near_level(price: float, levels: np.ndarray, pct: float) -> bool:
-        if levels is None or len(levels) == 0:
-            return False
-        # fix: kembalikan Python bool, bukan numpy.bool_
-        return bool(np.any(np.abs((levels - price) / price) <= pct / 100.0))
-
-    def sd_bias(df: pd.DataFrame, lookback: int = 60) -> Tuple[bool, bool]:
-        seg = df.tail(lookback)
-        rng = (seg['high'].max() - seg['low'].min()) / max(seg['close'].iloc[-1], 1e-9)
-        return (rng < 0.03, rng < 0.03)
-
     # ---------- Indicators ----------
     df['ema'] = EMAIndicator(df['close'], 22).ema_indicator()
     df['ma'] = SMAIndicator(df['close'], 20).sma_indicator()
@@ -328,15 +281,18 @@ if selected_file:
     use_next_bar_entry = st.sidebar.checkbox("Eksekusi di next bar open (live-like)", value=True, help="Jika ON, sinyal di bar i dieksekusi pada open bar i+1 dengan slippage.")
     slippage_pct = st.sidebar.slider("Slippage eksekusi (%)", 0.0, 0.30, 0.02, 0.01)
 
-    use_sr_filter = st.sidebar.checkbox("Filter Support/Resistance & Supply-Demand", value=True)
-    sr_near_pct   = st.sidebar.slider("Batas dekat level (%)", 0.1, 2.0, 0.6, 0.1)
-    use_mtf       = st.sidebar.checkbox("Multi-timeframe 1H + 4H", value=True)
-
+    use_sr_filter = st.sidebar.checkbox("Filter Support/Resistance", value=True,
+        help="Hindari LONG dekat resistance kuat & SHORT dekat support kuat.")
+    sr_near_pct = st.sidebar.slider("Batas dekat level (%)", 0.1, 2.0, 0.6, 0.1)
+    use_mtf_plus = st.sidebar.checkbox("Multi-timeframe 1H+4H + LTF momentum", value=False,
+        help="EMA50>=EMA200 sinkron di 1H & 4H; timing pakai ROC/RSI mikro.")
     if debug_mode:
-        use_mtf = False
+        use_mtf_plus = False
+    # cache level S/R agar hemat komputasi
+    sr_cache = build_sr_cache(df, lb=3, window=300, k=6, recalc_every=10)
 
     # untuk debug: log alasan block
-    debug_rows: list[dict[str, Any]] = []
+    debug_rows: List[Dict[str, Any]] = []
 
     for i in range(1, len(df)):
         row = df.iloc[i]
@@ -381,19 +337,16 @@ if selected_file:
             blocked_reasons_long.append('cooldown_active')
             blocked_reasons_short.append('cooldown_active')
         if use_sr_filter:
-            RES, SUP = compute_sr_levels(df.iloc[:i+1], lb=3, window=300, k=6)
+            RES, SUP = sr_cache.get(i, sr_cache.get(i-1, (np.array([]), np.array([]))))
             px = float(row['close'])
-            near_res = near_level(px, RES, sr_near_pct)
-            near_sup = near_level(px, SUP, sr_near_pct)
-            prefer_long, prefer_short = sd_bias(df.iloc[:i+1], lookback=60)
-            if long_raw and (near_res and not prefer_long):
+            if long_raw and near_level(px, RES, sr_near_pct):
                 long_raw = False; blocked_reasons_long.append('near_resistance')
-            if short_raw and (near_sup and not prefer_short):
+            if short_raw and near_level(px, SUP, sr_near_pct):
                 short_raw = False; blocked_reasons_short.append('near_support')
-        if use_mtf:
-            if long_raw and not htf_trend_ok('LONG', df.iloc[:i+1], rules=("1H","4H")):
+        if use_mtf_plus:
+            if long_raw and not htf_trend_ok_multi('LONG', df.iloc[:i+1], rules=('1H','4H')):
                 long_raw = False; blocked_reasons_long.append('htf_trend_mismatch')
-            if short_raw and not htf_trend_ok('SHORT', df.iloc[:i+1], rules=("1H","4H")):
+            if short_raw and not htf_trend_ok_multi('SHORT', df.iloc[:i+1], rules=('1H','4H')):
                 short_raw = False; blocked_reasons_short.append('htf_trend_mismatch')
             l_ok, s_ok = ltf_momentum_ok(df.iloc[:i+1], lookback=5, rsi_thr_long=52, rsi_thr_short=48)
             if long_raw and not l_ok:

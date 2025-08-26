@@ -1,32 +1,20 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import ast
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Tuple
 from ta.momentum import RSIIndicator
-
-
-def _load_function(name: str):
-    source = Path('backtester_scalping.py').read_text()
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            mod = ast.Module([node], type_ignores=[])
-            code = compile(mod, filename='tmp', mode='exec')
-            env = {'np': np, 'pd': pd, 'RSIIndicator': RSIIndicator, 'Tuple': Tuple}
-            exec(code, env)
-            return env[name]
-    raise RuntimeError(f'Function {name} not found')
+from indicators.sr_utils import near_level, ltf_momentum_ok
 
 
 def test_near_level_returns_bool():
-    near_level = _load_function('near_level')
     out = near_level(1.0, np.array([0.99, 1.01]), 2.0)
     assert isinstance(out, bool)
 
 
 def test_ltf_momentum_ok_tuple():
-    ltf_momentum_ok = _load_function('ltf_momentum_ok')
     df = pd.DataFrame({'close': [1, 1.01, 1.02, 1.03, 1.04, 1.05]})
     out = ltf_momentum_ok(df)
     assert isinstance(out[0], bool) and isinstance(out[1], bool)
