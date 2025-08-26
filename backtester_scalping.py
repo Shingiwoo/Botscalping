@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os, math, json
+import os, math, json, warnings, random
 import matplotlib.pyplot as plt
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple, Optional
 from ta.trend import EMAIndicator, SMAIndicator, MACD
 from ta.volatility import BollingerBands
 from ta.momentum import RSIIndicator
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 from engine_core import apply_breakeven_sl
 
 """
@@ -45,8 +46,10 @@ DEFAULT_MIN_ROI_TO_CLOSE_BY_TIME = float(os.getenv('MIN_ROI_TO_CLOSE_BY_TIME', '
 DEFAULT_MAX_HOLD_SECONDS = int(os.getenv('MAX_HOLD_SECONDS', '3600'))
 
 # ---------- UI ----------
-st.set_page_config(page_title="Backtester Scalping (RealLogic)", layout="wide")
-st.title("⚡ Backtester — Scalping (Selaras Real Trading)")
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+st.set_page_config(page_title="Backtester Scalping+", layout="wide")
+st.title("⚡ Backtester — Scalping")
 
 st.sidebar.header("📂 Data & Config")
 data_dir = st.sidebar.text_input("Folder Data CSV", value="./data")
@@ -159,9 +162,9 @@ tp1_p = st.sidebar.number_input("TP1 % (tutup 50%)", value=2.0)
 tp2_p = st.sidebar.number_input("TP2 % (tutup 30%)", value=3.2)
 tp3_p = st.sidebar.number_input("TP3 % (tutup 20%)", value=4.5)
 
-st.sidebar.subheader("🧪 ML Signal (opsional)")
-use_ml = st.sidebar.checkbox("Aktifkan ML signal", True)
-score_threshold = st.sidebar.slider("Minimal Skor Sinyal (non-ML)", 1.0, 5.0, 1.0, step=0.01)
+# --- ML toggle ---
+use_ml = st.sidebar.checkbox("Gunakan Machine Learning (RF)", value=False)
+score_threshold = st.sidebar.slider("Score Threshold (base+ML)", 0.5, 2.0, 1.0, 0.1)
 
 # NEW: Mode Debug
 st.sidebar.header("🧰 Debug")
