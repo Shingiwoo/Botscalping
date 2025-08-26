@@ -19,7 +19,7 @@ from indicators.sr_utils import (
     ltf_momentum_ok,
 )
 from optimizer.param_loader import load_params_from_csv
-from optimizer.exporter import export_params_to_coin_config
+from optimizer.exporter import export_params_to_coin_config, export_params_to_preset_json
 
 """
 ============================================================
@@ -782,6 +782,60 @@ if selected_file:
             st.success(f"Berhasil update {coin_cfg_path} untuk {exp_symbol} ✅")
         except Exception as e:
             st.error(f"Gagal update coin_config.json: {e}")
+
+    # ========= Export preset JSON (per-simbol/TF) =========
+    st.markdown("---")
+    st.subheader("📦 Export preset JSON")
+
+    def _infer_tf_key(df: pd.DataFrame) -> str:
+        """
+        Coba tebak TF dari timestamp:
+        - '15T' -> '15m', '1H'/'4H' -> '1h'/'4h', fallback 'tf'
+        """
+        try:
+            freq = pd.infer_freq(df['timestamp'])
+            if not freq:
+                return "tf"
+            f = str(freq)
+            # contoh: '15T','5T' -> '15m','5m'
+            if f.endswith("T"):
+                return f"{f[:-1]}m"
+            # contoh: '1H','4H' -> '1h','4h'
+            if f.endswith("H"):
+                return f"{f[:-1]}h"
+            # contoh: 'S' -> 's'
+            if f.endswith("S"):
+                return f"{f[:-1]}s"
+            return f.lower()
+        except Exception:
+            return "tf"
+
+    default_tf_key = _infer_tf_key(df) if 'df' in locals() and isinstance(df, pd.DataFrame) else "tf"
+    default_preset_key = f"{symbol}_{default_tf_key}"
+
+    pc1, pc2 = st.columns([2, 1])
+    with pc1:
+        preset_path = st.text_input("Path preset JSON", value="presets/scalping_params.json")
+    with pc2:
+        preset_key = st.text_input("Preset key", value=default_preset_key)
+
+    if st.button("Export preset JSON"):
+        try:
+            export_payload = dict(active_params)
+            export_payload.update({
+                # beberapa nilai runtime yang berguna disimpan juga
+                "symbol": str(symbol),
+                "tf": default_tf_key
+            })
+            res = export_params_to_preset_json(
+                preset_path=preset_path,
+                preset_key=preset_key,
+                params=export_payload,
+                merge=True
+            )
+            st.success(f"Preset tersimpan ke {preset_path} dengan key '{preset_key}' ✅")
+        except Exception as e:
+            st.error(f"Gagal export preset: {e}")
     df_trades = pd.DataFrame(trades)
     wins = df_trades[df_trades['pnl']>0] if not df_trades.empty else pd.DataFrame(columns=['pnl'])
     losses = df_trades[df_trades['pnl']<=0] if not df_trades.empty else pd.DataFrame(columns=['pnl'])
