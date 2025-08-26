@@ -18,7 +18,7 @@ from indicators.sr_utils import (
     htf_trend_ok_multi,
     ltf_momentum_ok,
 )
-from optimizer.param_loader import load_params_from_csv
+from optimizer.param_loader import load_params_from_csv, load_params_from_json
 from optimizer.exporter import export_params_to_coin_config, export_params_to_preset_json
 
 """
@@ -208,6 +208,50 @@ use_mtf_plus = st.sidebar.checkbox(
 )
 if debug_mode:
     use_mtf_plus = False
+
+st.sidebar.markdown("### 📦 Load preset JSON")
+sp1, sp2 = st.sidebar.columns([2, 1])
+with sp1:
+    load_preset_path = st.text_input("Path preset JSON", value="presets/scalping_params.json")
+with sp2:
+    try:
+        _freq = pd.infer_freq(df['timestamp']) if 'df' in locals() else None
+        if _freq and _freq.endswith("T"):
+            _tf = f"{_freq[:-1]}m"
+        elif _freq and _freq.endswith("H"):
+            _tf = f"{_freq[:-1]}h"
+        else:
+            _tf = "tf"
+    except Exception:
+        _tf = "tf"
+    load_preset_key = st.text_input("Preset key", value=f"{symbol}_{_tf}")
+
+if st.sidebar.button("Load dari JSON"):
+    try:
+        overrides = load_params_from_json(load_preset_path, load_preset_key)
+        ema_len = int(overrides.get("ema_len", ema_len))
+        sma_len = int(overrides.get("sma_len", sma_len))
+        rsi_period = int(overrides.get("rsi_period", rsi_period))
+        rsi_long_min = int(overrides.get("rsi_long_min", rsi_long_min))
+        rsi_long_max = int(overrides.get("rsi_long_max", rsi_long_max))
+        rsi_short_min = int(overrides.get("rsi_short_min", rsi_short_min))
+        rsi_short_max = int(overrides.get("rsi_short_max", rsi_short_max))
+        min_atr_pct = float(overrides.get("min_atr_pct", min_atr_pct))
+        max_atr_pct = float(overrides.get("max_atr_pct", max_atr_pct))
+        max_body_atr = float(overrides.get("max_body_atr", max_body_atr))
+        sl_atr_mult = float(overrides.get("sl_atr_mult", sl_atr_mult))
+        sl_pct = float(overrides.get("sl_pct", sl_pct))
+        trailing_trigger = float(overrides.get("trailing_trigger", trailing_trigger))
+        trailing_step = float(overrides.get("trailing_step", trailing_step))
+        be_trigger_pct = float(overrides.get("be_trigger_pct", be_trigger_pct))
+        score_threshold = float(overrides.get("score_threshold", score_threshold))
+        sr_near_pct = float(overrides.get("sr_near_pct", sr_near_pct))
+        use_sr_filter = bool(overrides.get("use_sr_filter", use_sr_filter))
+        use_mtf_plus = bool(overrides.get("use_mtf_plus", use_mtf_plus))
+        st.session_state["active_overrides"] = overrides
+        st.sidebar.success("Preset JSON diterapkan ✅")
+    except Exception as e:
+        st.sidebar.error(f"Gagal load preset: {e}")
 
 st.sidebar.markdown("### 🎯 Load Optimized Params")
 opt_path = st.sidebar.text_input("CSV hasil optimasi", value="", placeholder="/path/opt_results-ADA.csv")
