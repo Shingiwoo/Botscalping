@@ -250,7 +250,7 @@ if st.sidebar.button("Load dari JSON"):
         st.sidebar.error(f"Gagal load preset: {e}")
 
 st.sidebar.markdown("### 🎯 Load Optimized Params")
-opt_path = st.sidebar.text_input("CSV hasil optimasi", value="", placeholder="/path/opt_results-ADA.csv")
+opt_path = st.sidebar.text_input("CSV hasil optimasi", value="", placeholder="parameter/ADA/opt_results-ADA.csv")
 col1, col2 = st.sidebar.columns(2)
 with col1:
     opt_min_wr = st.number_input("Min WR (%)", 0.0, 100.0, 70.0, 0.5)
