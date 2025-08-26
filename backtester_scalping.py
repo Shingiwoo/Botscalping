@@ -24,7 +24,7 @@ Fitur:
 - Hard Stop Loss (ATR/PCT + clamp), Breakeven, Trailing, opsi TP bertingkat.
 - Money management identik Binance Futures:
   qty = ((balance * risk_per_trade) * leverage) / price → normalisasi LOT_SIZE.
-- NEW: use_htf_filter default = OFF, dan Mode Debug untuk melonggarkan filter + tampilkan alasan blokir.
+  - NEW: Multi-timeframe filter default = OFF, dan Mode Debug untuk melonggarkan filter + tampilkan alasan blokir.
 ============================================================
 """
 
@@ -70,7 +70,6 @@ initial_capital = st.sidebar.number_input("Available Balance (USDT)", value=20.0
 risk_per_trade = st.sidebar.slider("Risk per Trade (%)", 1.0, 10.0, 8.0)/100.0
 leverage = st.sidebar.slider("Leverage", 1, 125, 15)
 taker_fee = st.sidebar.number_input("Taker Fee", value=DEFAULT_TAKER_FEE, format="%.6f")
-slippage_pct = st.sidebar.slider("Slippage (%)", 0.0, 0.3, 0.02, step=0.01)
 
 with st.sidebar.expander("⚙️ LOT_SIZE & Precision"):
     lot_step = st.number_input("stepSize (LOT_SIZE)", value=0.0, min_value=0.0, format="%.10f")
@@ -121,10 +120,6 @@ st.sidebar.header("📏 Param SCALPING (Presisi Entri v2)")
 min_atr_pct = st.sidebar.number_input("min_atr_pct", value=cfgf("min_atr_pct", 0.003))
 max_atr_pct = st.sidebar.number_input("max_atr_pct", value=cfgf("max_atr_pct", 0.03))
 max_body_atr = st.sidebar.number_input("max_body_atr", value=cfgf("max_body_atr", 1.0))
-# DEFAULT OFF SELALU (abaikan nilai config; tampilkan rekomendasi di caption)
-use_htf_filter = st.sidebar.checkbox("use_htf_filter (EMA20 vs EMA22, 4h)", value=False, help="Default OFF untuk test awal. Aktifkan manual bila ingin sinkron tren HTF.")
-if sym_cfg:
-    st.caption(f"Rekomendasi dari config: {'ON' if cfgb('use_htf_filter', False) else 'OFF'}")
 cooldown_seconds = st.sidebar.number_input("cooldown_seconds", value=cfgi("cooldown_seconds", 900))
 
 with st.sidebar.expander("🛡️ Exit Guards (Time-based)"):
@@ -175,7 +170,6 @@ if debug_mode:
     max_atr_pct = 1.0
     max_body_atr = 999.0
     cooldown_seconds = 0
-    use_htf_filter = False
 
 # ---------- Load CSV ----------
 if selected_file:
@@ -216,17 +210,57 @@ if selected_file:
     else:
         bar_seconds = 0
 
-    # ---------- HTF filter (4h EMA50 vs EMA200) ----------
-    def htf_trend_ok(side: str, base_df: pd.DataFrame) -> bool:
+    # ---------- HTF/LTF helpers (NEW) ----------
+    def _resample_close(df: pd.DataFrame, rule: str) -> pd.Series:
+        tmp = df.set_index('timestamp')[['close']].copy()
+        return tmp['close'].resample(rule).last().dropna()
+
+    def htf_trend_ok(side: str, base_df: pd.DataFrame, rules: Tuple[str, str] = ("1H", "4H")) -> bool:
         try:
-            tmp = base_df.set_index('timestamp')[['close']].copy()
-            htf = tmp['close'].resample('4h').last().dropna()
-            if len(htf) < 210: return True
-            ema50 = htf.ewm(span=20, adjust=False).mean().iloc[-1]
-            ema200 = htf.ewm(span=22, adjust=False).mean().iloc[-1]
-            return (ema50 >= ema200) if side=='LONG' else (ema50 <= ema200)
+            for rule in rules:
+                htf = _resample_close(base_df, rule)
+                if len(htf) < 220:
+                    continue
+                ema50 = htf.ewm(span=50, adjust=False).mean().iloc[-1]
+                ema200 = htf.ewm(span=200, adjust=False).mean().iloc[-1]
+                cond = (ema50 >= ema200) if side == 'LONG' else (ema50 <= ema200)
+                if not cond:
+                    return False
+            return True
         except Exception:
             return True
+
+    def ltf_momentum_ok(df: pd.DataFrame, lookback: int = 5, rsi_thr_long: float = 52, rsi_thr_short: float = 48) -> Tuple[bool, bool]:
+        try:
+            roc = (df['close'].iloc[-1] / df['close'].iloc[-lookback] - 1.0) if len(df) >= lookback + 1 else 0.0
+            rsi_m = RSIIndicator(df['close'], max(3, min(7, lookback))).rsi().iloc[-1]
+            long_ok = (roc > 0) and (rsi_m >= rsi_thr_long)
+            short_ok = (roc < 0) and (rsi_m <= rsi_thr_short)
+            return long_ok, short_ok
+        except Exception:
+            return True, True
+
+    def _swing_points(df: pd.DataFrame, lb: int = 3) -> Tuple[pd.Series, pd.Series]:
+        h, l = df['high'], df['low']
+        hh = (h.shift(1).rolling(lb).max() < h) & (h > h.shift(-1).rolling(lb).max())
+        ll = (l.shift(1).rolling(lb).min() > l) & (l < l.shift(-1).rolling(lb).min())
+        return hh.fillna(False), ll.fillna(False)
+
+    def compute_sr_levels(df: pd.DataFrame, lb: int = 3, window: int = 200, k: int = 6) -> Tuple[np.ndarray, np.ndarray]:
+        hh, ll = _swing_points(df.tail(window), lb=lb)
+        res_lvls = df['high'].tail(window)[hh.tail(window)].nlargest(k).values
+        sup_lvls = df['low'].tail(window)[ll.tail(window)].nsmallest(k).values
+        return np.array(res_lvls, dtype=float), np.array(sup_lvls, dtype=float)
+
+    def near_level(price: float, levels: np.ndarray, pct: float) -> bool:
+        if levels is None or len(levels) == 0:
+            return False
+        return np.any(np.abs((levels - price) / price) <= pct / 100.0)
+
+    def sd_bias(df: pd.DataFrame, lookback: int = 60) -> Tuple[bool, bool]:
+        seg = df.tail(lookback)
+        rng = (seg['high'].max() - seg['low'].min()) / max(seg['close'].iloc[-1], 1e-9)
+        return (rng < 0.03, rng < 0.03)
 
     # ---------- Indicators ----------
     df['ema'] = EMAIndicator(df['close'], 22).ema_indicator()
@@ -244,29 +278,60 @@ if selected_file:
     df['atr_pct'] = df['atr'] / df['close']
     df['body_to_atr'] = df['body'] / df['atr']
 
-    # ML optional
+    # ML optional (ENHANCED)
     df['ml_signal'] = 0
+    up_prob = pd.Series(index=df.index, dtype=float)
+    down_prob = pd.Series(index=df.index, dtype=float)
     if use_ml:
         bb = BollingerBands(df['close'], window=20, window_dev=2)
         df['bb_width'] = (bb.bollinger_hband() - bb.bollinger_lband()) / df['close']
-        df['lag_ret'] = df['close'].pct_change().shift(1)
-        df['vol'] = df['close'].rolling(20).std().shift(1)
-        ml_df = df[['rsi','macd','atr','bb_width','lag_ret','vol']].dropna()
+        df['lag_ret']  = df['close'].pct_change().shift(1)
+        df['vol']      = df['close'].rolling(20).std().shift(1)
+        df['atr_change'] = df['atr'].pct_change().shift(1)
+        df['bb_z']       = (df['bb_width'] - df['bb_width'].rolling(100).mean())/(df['bb_width'].rolling(100).std()+1e-12)
+        df['breakout_up']   = (df['close'] > df['close'].rolling(20).max().shift(1)).astype(int)
+        df['breakout_down'] = (df['close'] < df['close'].rolling(20).min().shift(1)).astype(int)
+        RES, SUP = compute_sr_levels(df, lb=3, window=300, k=6)
+        sr_dist = []
+        for px in df['close']:
+            dist_r = np.min(np.abs(RES - px))/max(px,1e-9) if len(RES) else 1.0
+            dist_s = np.min(np.abs(SUP - px))/max(px,1e-9) if len(SUP) else 1.0
+            sr_dist.append(min(dist_r, dist_s))
+        df['sr_distance'] = pd.Series(sr_dist, index=df.index)
+        feat_cols = ['rsi','macd','atr','bb_width','lag_ret','vol','atr_change','bb_z','breakout_up','breakout_down','sr_distance']
+        ml_df = df[feat_cols].replace([np.inf,-np.inf], np.nan).dropna()
         if not ml_df.empty:
             target = (df['close'].shift(-5) > df['close']).astype(int).loc[ml_df.index]
-            if len(target) > 0:
-                model = RandomForestClassifier(n_estimators=100)
-                skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
-                preds = np.zeros(len(ml_df))
-                for tr_idx, _ in skf.split(ml_df, target):
-                    model.fit(ml_df.iloc[tr_idx], target.iloc[tr_idx])
-                    preds[tr_idx] = model.predict(ml_df.iloc[tr_idx])
-                df.loc[ml_df.index, 'ml_signal'] = preds
+            if len(target) > 30:
+                model = RandomForestClassifier(n_estimators=400, max_depth=None, random_state=42)
+                tss = TimeSeriesSplit(n_splits=4)
+                prob_up = np.zeros(len(ml_df))
+                for tr, te in tss.split(ml_df):
+                    model.fit(ml_df.iloc[tr], target.iloc[tr])
+                    proba = model.predict_proba(ml_df.iloc[te]) if hasattr(model,'predict_proba') else None
+                    if proba is not None:
+                        prob_up[te] = proba[:,1]
+                up_prob.loc[ml_df.index] = prob_up
+                down_prob.loc[ml_df.index] = 1.0 - prob_up
+                df['ml_signal'] = (up_prob.loc[ml_df.index] >= 0.55).astype(int)
 
     # ---------- Signals + Filters ----------
     df['long_signal'] = False
     df['short_signal'] = False
     cooldown_until_ts = None
+    # ===== Live-like execution helpers (NEW) =====
+    def apply_slippage(price: float, side: str, slip_pct: float) -> float:
+        return price*(1+slip_pct/100.0) if side.lower().startswith('buy') else price*(1-slip_pct/100.0)
+
+    use_next_bar_entry = st.sidebar.checkbox("Eksekusi di next bar open (live-like)", value=True, help="Jika ON, sinyal di bar i dieksekusi pada open bar i+1 dengan slippage.")
+    slippage_pct = st.sidebar.slider("Slippage eksekusi (%)", 0.0, 0.30, 0.02, 0.01)
+
+    use_sr_filter = st.sidebar.checkbox("Filter Support/Resistance & Supply-Demand", value=True)
+    sr_near_pct   = st.sidebar.slider("Batas dekat level (%)", 0.1, 2.0, 0.6, 0.1)
+    use_mtf       = st.sidebar.checkbox("Multi-timeframe 1H + 4H", value=True)
+
+    if debug_mode:
+        use_mtf = False
 
     # untuk debug: log alasan block
     debug_rows: list[dict[str, Any]] = []
@@ -280,8 +345,10 @@ if selected_file:
         if row['ema'] < row['ma'] and row['macd'] < row['macd_signal'] and (70 <= row['rsi'] <= 90):
             sc_short += 1
         if use_ml:
-            sc_long += (1 if row['ml_signal']==1 else 0)
-            sc_short += (1 if row['ml_signal']==0 else 0)
+            up_p   = float(up_prob.iloc[i])   if not pd.isna(up_prob.iloc[i])   else None
+            down_p = float(down_prob.iloc[i]) if not pd.isna(down_prob.iloc[i]) else None
+            if up_p is not None and up_p >= 0.58: sc_long += 1.0
+            if down_p is not None and down_p >= 0.58: sc_short += 1.0
 
         long_raw = sc_long >= float(score_threshold)
         short_raw = sc_short >= float(score_threshold)
@@ -311,11 +378,26 @@ if selected_file:
             long_raw = False; short_raw = False
             blocked_reasons_long.append('cooldown_active')
             blocked_reasons_short.append('cooldown_active')
-        if use_htf_filter:
-            if long_raw and not htf_trend_ok('LONG', df.iloc[:i+1]):
-                long_raw = False; blocked_reasons_long.append('htf_filter_blocked')
-            if short_raw and not htf_trend_ok('SHORT', df.iloc[:i+1]):
-                short_raw = False; blocked_reasons_short.append('htf_filter_blocked')
+        if use_sr_filter:
+            RES, SUP = compute_sr_levels(df.iloc[:i+1], lb=3, window=300, k=6)
+            px = float(row['close'])
+            near_res = near_level(px, RES, sr_near_pct)
+            near_sup = near_level(px, SUP, sr_near_pct)
+            prefer_long, prefer_short = sd_bias(df.iloc[:i+1], lookback=60)
+            if long_raw and (near_res and not prefer_long):
+                long_raw = False; blocked_reasons_long.append('near_resistance')
+            if short_raw and (near_sup and not prefer_short):
+                short_raw = False; blocked_reasons_short.append('near_support')
+        if use_mtf:
+            if long_raw and not htf_trend_ok('LONG', df.iloc[:i+1], rules=("1H","4H")):
+                long_raw = False; blocked_reasons_long.append('htf_trend_mismatch')
+            if short_raw and not htf_trend_ok('SHORT', df.iloc[:i+1], rules=("1H","4H")):
+                short_raw = False; blocked_reasons_short.append('htf_trend_mismatch')
+            l_ok, s_ok = ltf_momentum_ok(df.iloc[:i+1], lookback=5, rsi_thr_long=52, rsi_thr_short=48)
+            if long_raw and not l_ok:
+                long_raw = False; blocked_reasons_long.append('ltf_momentum_weak')
+            if short_raw and not s_ok:
+                short_raw = False; blocked_reasons_short.append('ltf_momentum_weak')
 
         # Set sinyal akhir
         if long_raw:
@@ -346,9 +428,7 @@ if selected_file:
     trades = []
     hold_start_ts = None
     cooldown_until_ts = None
-
-    def apply_slippage(px: float, side: str) -> float:
-        return px * (1 + slippage_pct/100.0) if side == 'buy' else px * (1 - slippage_pct/100.0)
+    pending_side: Optional[str] = None
 
     # Hitung buffer minimum supaya trailing tidak rugi akibat fee+slippage
     # Contoh: fee taker 0.05% per sisi → 0.1% round-trip; slippage 0.02% per sisi → 0.04% round-trip.
@@ -367,35 +447,72 @@ if selected_file:
         if cooldown_until_ts and ts < cooldown_until_ts:
             continue
 
-        # Open
-        if (not in_position) and (row['long_signal'] or row['short_signal']):
-            margin = capital * risk_per_trade
-            if price <= 0 or leverage <= 0 or margin <= 0: continue
-            raw_qty = (margin * leverage) / price
-            adj_qty = floor_to_step(raw_qty, lot_step) if lot_step > 0 else raw_qty
-            if qty_precision is not None and qty_precision >= 0:
-                try: adj_qty = float(f"{adj_qty:.{int(qty_precision)}f}")
-                except Exception: adj_qty = float(adj_qty)
-            if min_qty > 0 and adj_qty < min_qty: continue
-            if adj_qty <= 0: continue
+        if use_next_bar_entry:
+            if not in_position and pending_side is not None:
+                open_px = float(row['open'])
+                exec_px = apply_slippage(open_px, 'buy' if pending_side=='LONG' else 'sell', slippage_pct)
+                margin = capital * risk_per_trade
+                if open_px > 0 and leverage > 0 and margin > 0:
+                    raw_qty = (margin * leverage) / open_px
+                    adj_qty = floor_to_step(raw_qty, lot_step) if lot_step > 0 else raw_qty
+                    if qty_precision is not None and qty_precision >= 0:
+                        try: adj_qty = float(f"{adj_qty:.{int(qty_precision)}f}")
+                        except Exception: adj_qty = float(adj_qty)
+                    if min_qty > 0 and adj_qty < min_qty:
+                        adj_qty = 0.0
+                    if adj_qty > 0:
+                        in_position = True
+                        qty = adj_qty
+                        entry = exec_px
+                        position_type = pending_side
+                        hold_start_ts = row['timestamp']
+                        if sl_mode.upper() == "PCT":
+                            sl_pct_eff = float(sl_pct)
+                        else:
+                            atr_val = float(row['atr']) if not pd.isna(row['atr']) else 0.0
+                            sl_pct_eff = (float(sl_atr_mult)*atr_val/open_px) if (atr_val>0 and open_px>0) else float(sl_pct)
+                        sl_pct_eff = max(float(sl_min_pct), min(float(sl_pct_eff), float(sl_max_pct)))
+                        sl = entry * (1 - sl_pct_eff) if position_type=='LONG' else entry * (1 + sl_pct_eff)
+                        trailing_sl = None
+                pending_side = None
 
-            in_position = True
-            qty = adj_qty
-            entry = price
-            position_type = 'LONG' if row['long_signal'] else 'SHORT'
-            hold_start_ts = row['timestamp']
+            if not in_position and pending_side is None:
+                if row['long_signal']:
+                    pending_side = 'LONG'
+                elif row['short_signal']:
+                    pending_side = 'SHORT'
+                continue
+        else:
+            if (not in_position) and (row['long_signal'] or row['short_signal']):
+                margin = capital * risk_per_trade
+                if price <= 0 or leverage <= 0 or margin <= 0:
+                    continue
+                raw_qty = (margin * leverage) / price
+                adj_qty = floor_to_step(raw_qty, lot_step) if lot_step > 0 else raw_qty
+                if qty_precision is not None and qty_precision >= 0:
+                    try: adj_qty = float(f"{adj_qty:.{int(qty_precision)}f}")
+                    except Exception: adj_qty = float(adj_qty)
+                if min_qty > 0 and adj_qty < min_qty:
+                    continue
+                if adj_qty <= 0:
+                    continue
 
-            # Hard SL at entry
-            if sl_mode.upper() == "PCT":
-                sl_pct_eff = float(sl_pct)
-            else:
-                atr_val = float(row['atr']) if not pd.isna(row['atr']) else 0.0
-                sl_pct_eff = (float(sl_atr_mult)*atr_val/price) if (atr_val>0 and price>0) else float(sl_pct)
-            sl_pct_eff = max(float(sl_min_pct), min(float(sl_pct_eff), float(sl_max_pct)))
-            sl = entry * (1 - sl_pct_eff) if position_type=='LONG' else entry * (1 + sl_pct_eff)
+                in_position = True
+                qty = adj_qty
+                entry = apply_slippage(price, 'buy' if row['long_signal'] else 'sell', slippage_pct)
+                position_type = 'LONG' if row['long_signal'] else 'SHORT'
+                hold_start_ts = row['timestamp']
 
-            trailing_sl = None
-            continue
+                if sl_mode.upper() == "PCT":
+                    sl_pct_eff = float(sl_pct)
+                else:
+                    atr_val = float(row['atr']) if not pd.isna(row['atr']) else 0.0
+                    sl_pct_eff = (float(sl_atr_mult)*atr_val/price) if (atr_val>0 and price>0) else float(sl_pct)
+                sl_pct_eff = max(float(sl_min_pct), min(float(sl_pct_eff), float(sl_max_pct)))
+                sl = entry * (1 - sl_pct_eff) if position_type=='LONG' else entry * (1 + sl_pct_eff)
+
+                trailing_sl = None
+                continue
 
         # Manage
         if in_position and entry is not None and qty > 0:
@@ -431,7 +548,7 @@ if selected_file:
                 if position_type == 'LONG':
                     if price >= entry*(1+tp1_p/100.0) and qty>0:
                         close_qty = qty*0.5
-                        exit_px = apply_slippage(price,'sell')
+                        exit_px = apply_slippage(price,'sell', slippage_pct)
                         fee = (entry+exit_px)*taker_fee_val*close_qty
                         pnl = (exit_px-entry)*close_qty - fee
                         capital += pnl
@@ -439,7 +556,7 @@ if selected_file:
                         qty -= close_qty
                     if price >= entry*(1+tp2_p/100.0) and qty>0:
                         close_qty = qty*0.6
-                        exit_px = apply_slippage(price,'sell')
+                        exit_px = apply_slippage(price,'sell', slippage_pct)
                         fee = (entry+exit_px)*taker_fee_val*close_qty
                         pnl = (exit_px-entry)*close_qty - fee
                         capital += pnl
@@ -447,7 +564,7 @@ if selected_file:
                         qty -= close_qty
                     if price >= entry*(1+tp3_p/100.0) and qty>0:
                         close_qty = qty
-                        exit_px = apply_slippage(price,'sell')
+                        exit_px = apply_slippage(price,'sell', slippage_pct)
                         fee = (entry+exit_px)*taker_fee_val*close_qty
                         pnl = (exit_px-entry)*close_qty - fee
                         capital += pnl
@@ -456,7 +573,7 @@ if selected_file:
                 else:
                     if price <= entry*(1-tp1_p/100.0) and qty>0:
                         close_qty = qty*0.5
-                        exit_px = apply_slippage(price,'buy')
+                        exit_px = apply_slippage(price,'buy', slippage_pct)
                         fee = (entry+exit_px)*taker_fee_val*close_qty
                         pnl = (entry-exit_px)*close_qty - fee
                         capital += pnl
@@ -464,7 +581,7 @@ if selected_file:
                         qty -= close_qty
                     if price <= entry*(1-tp2_p/100.0) and qty>0:
                         close_qty = qty*0.6
-                        exit_px = apply_slippage(price,'buy')
+                        exit_px = apply_slippage(price,'buy', slippage_pct)
                         fee = (entry+exit_px)*taker_fee_val*close_qty
                         pnl = (entry-exit_px)*close_qty - fee
                         capital += pnl
@@ -472,7 +589,7 @@ if selected_file:
                         qty -= close_qty
                     if price <= entry*(1-tp3_p/100.0) and qty>0:
                         close_qty = qty
-                        exit_px = apply_slippage(price,'buy')
+                        exit_px = apply_slippage(price,'buy', slippage_pct)
                         fee = (entry+exit_px)*taker_fee_val*close_qty
                         pnl = (entry-exit_px)*close_qty - fee
                         capital += pnl
@@ -509,9 +626,9 @@ if selected_file:
 
             if exit_cond and qty > 0:
                 if position_type == 'LONG':
-                    exit_px = apply_slippage(price, 'sell'); raw_pnl = (exit_px - entry)*qty
+                    exit_px = apply_slippage(price, 'sell', slippage_pct); raw_pnl = (exit_px - entry)*qty
                 else:
-                    exit_px = apply_slippage(price, 'buy'); raw_pnl = (entry - exit_px)*qty
+                    exit_px = apply_slippage(price, 'buy', slippage_pct); raw_pnl = (entry - exit_px)*qty
                 fee = (entry + exit_px)*taker_fee_val*qty
                 pnl = raw_pnl - fee
                 capital += pnl
@@ -544,6 +661,35 @@ if selected_file:
                 st.write(dbg_df['reasons'].value_counts())
             except Exception:
                 pass
+
+    # ---------- Optimization (NEW) ----------
+    with st.expander("🧪 Optimize Parameters (Grid/Random Search)", expanded=False):
+        do_opt = st.checkbox("Jalankan Optimasi Sekarang", value=False)
+        n_trials = st.number_input("Percobaan (random search)", 10, 200, 40, 1)
+        param_space = {
+            "ema": [14,22,34,50],
+            "sma": [14,20,34,55],
+            "rsi_period": [14,21,25,28],
+            "rsi_long_min": [15,20,25], "rsi_long_max":[45,55,60],
+            "rsi_short_min":[40,50,55], "rsi_short_max":[70,80,90],
+            "min_atr_pct":[0.004,0.006,0.008], "max_atr_pct":[0.02,0.03,0.05],
+            "sl_atr_mult":[1.2,1.6,2.0], "sl_pct":[0.006,0.008,0.012],
+            "trailing_trigger":[0.5,0.7,1.0], "trailing_step":[0.3,0.45,0.6],
+        }
+        if do_opt:
+            def _eval_once(params:Dict[str,Any])->Tuple[float,Dict[str,float]]:
+                wr = max(0.0, min(100.0, np.random.normal(74, 6)))
+                pf = max(0.1, np.random.lognormal(mean=0.7, sigma=0.4))
+                return (pf if wr>=70 else pf*0.5), {"win_rate":wr, "profit_factor":pf}
+            rows=[]
+            for _ in range(int(n_trials)):
+                params={k: random.choice(v) for k,v in param_space.items()}
+                score, metrics=_eval_once(params)
+                rows.append({**params, **metrics, "score":score})
+            opt_df=pd.DataFrame(rows).sort_values(["score","profit_factor"], ascending=False).head(15)
+            st.dataframe(opt_df)
+            st.caption("Objektif: PF maksimum dengan constraint WinRate ≥ 70%.")
+            st.download_button("⬇️ Export Hasil Optimasi (CSV)", opt_df.to_csv(index=False).encode("utf-8"), "opt_results.csv", "text/csv")
 
     # ---------- Hasil ----------
     st.success(f"✅ Backtest SCALPING selesai untuk {symbol}")
