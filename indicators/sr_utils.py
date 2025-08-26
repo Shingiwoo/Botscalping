@@ -3,12 +3,25 @@ from typing import Dict, Tuple, List
 import numpy as np
 import pandas as pd
 from ta.momentum import RSIIndicator
+import re
+
+
+def _normalize_resample_rule(rule: str) -> str:
+    """
+    Ubah alias jam kapital ('1H','4H',...) menjadi huruf kecil ('1h','4h')
+    agar kompatibel dengan Pandas terbaru.
+    Tidak menyentuh alias lain (hindari mengubah 'MS', dsb).
+    """
+    r = str(rule)
+    # match "<digit(s)>H" saja
+    return re.sub(r'(?<=\d)H\b', 'h', r)
 
 def _resample_close(df: pd.DataFrame, rule: str) -> pd.Series:
     tmp = df.set_index('timestamp')[['close']].copy()
-    return tmp['close'].resample(rule).last().dropna()
+    use_rule = _normalize_resample_rule(rule)
+    return tmp['close'].resample(use_rule).last().dropna()
 
-def htf_trend_ok_multi(side: str, base_df: pd.DataFrame, rules: Tuple[str, ...] = ("1H","4H")) -> bool:
+def htf_trend_ok_multi(side: str, base_df: pd.DataFrame, rules: Tuple[str, ...] = ("1h","4h")) -> bool:
     """
     Valid jika EMA50>=EMA200 di SEMUA HTF untuk LONG (sebaliknya untuk SHORT).
     Mengembalikan bool murni (bukan numpy.bool_).
