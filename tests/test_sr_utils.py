@@ -2,7 +2,7 @@ import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import numpy as np
 import pandas as pd
-from indicators.sr_utils import compute_sr_levels, near_level, build_sr_cache, ltf_momentum_ok, htf_trend_ok_multi
+from indicators.sr_utils import compute_sr_levels, near_level, build_sr_cache, ltf_momentum_ok, htf_trend_ok_multi, _resample_close
 
 def _mkdf(n=350):
     idx = pd.date_range("2024-01-01", periods=n, freq="15min")
@@ -28,4 +28,10 @@ def test_ltf_momentum_and_htf_return_bool():
     df = _mkdf(500)
     l_ok, s_ok = ltf_momentum_ok(df, lookback=5)
     assert isinstance(l_ok, bool) and isinstance(s_ok, bool)
-    assert isinstance(htf_trend_ok_multi("LONG", df, rules=("1H","4H")), bool)
+    assert isinstance(htf_trend_ok_multi("LONG", df, rules=("1h","4h")), bool)
+
+def test_resample_close_normalizes_rule():
+    df = _mkdf(200)
+    a = _resample_close(df, "1H")
+    b = _resample_close(df, "1h")
+    assert len(a) == len(b)
