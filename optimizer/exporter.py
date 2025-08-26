@@ -49,3 +49,40 @@ def export_params_to_coin_config(
     with open(coin_config_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
     return cfg
+
+
+def _ensure_parent_dir(path: str) -> None:
+    d = os.path.dirname(os.path.abspath(path))
+    if d and not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
+
+
+def export_params_to_preset_json(
+    preset_path: str,
+    preset_key: str,
+    params: Dict[str, Any],
+    merge: bool = True
+) -> Dict[str, Any]:
+    """
+    Simpan snapshot parameter ke file preset JSON.
+    - preset_key contoh: "ADAUSDT_15m"
+    - jika merge=True, gabungkan dengan konten lama (kalau ada)
+    Return: dict hasil akhir yang ditulis.
+    """
+    _ensure_parent_dir(preset_path)
+    data: Dict[str, Any] = {}
+    if os.path.exists(preset_path):
+        try:
+            with open(preset_path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception:
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if merge:
+        data[preset_key] = dict(params)
+    else:
+        data = {preset_key: dict(params)}
+    with open(preset_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    return data
