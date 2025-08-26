@@ -134,6 +134,85 @@ streamlit run backtester_scalping.py --server.port 8501
 * **Mode Debug**: melonggarkan filter dan menampilkan alasan blokir sinyal.
 * Output: **Equity Curve**, tabel **Trade History** + **CSV unduh**.
 
+## 🎯 Preset Parameter (Load/Export) — Backtester Scalping
+
+Fitur ini memudahkan siklus **Optimasi → Terapkan → Uji Dryrun/Paper/Real** tanpa mengetik manual parameter.
+
+### Alur Singkat
+1. **Optimasi** (UI Backtester):
+   - Buka expander **🧪 Optimize Parameters** dan jalankan optimasi (Grid/Random).
+   - **Target**: Win Rate ≥ 70–75%, Profit Factor ≥ 2–3, minimal trades ≥ 20 (hindari overfit).
+   - Unduh `opt_results-<SYMBOL>.csv`.
+
+2. **Apply dari CSV** (opsional):
+   - Di sidebar, isi `CSV hasil optimasi` → klik **Apply dari CSV**.
+   - Panel **🔧 Active Params** menampilkan ringkasan parameter yang aktif.
+
+3. **Export preset JSON**:
+   - Scroll ke bawah → **📦 Export preset JSON**.
+   - `Path preset JSON`: `presets/scalping_params.json` (default).
+   - `Preset key`: otomatis `<SYMBOL>_<TF>` (contoh `ADAUSDT_15m`).
+   - Klik **Export preset JSON** → file preset berisi snapshot parameter aktif.
+
+4. **Load dari preset JSON**:
+   - Di **sidebar**, bagian **📦 Load preset JSON**.
+   - Isi `Path preset JSON` dan `Preset key`.
+   - Klik **Load dari JSON** → parameter UI akan di-overwrite dari preset.
+   - Cocok untuk *repeatable research* dan *team handoff*.
+
+5. **Apply → coin_config.json** (untuk paper/real):
+   - Scroll ke **💾 Apply → coin_config.json**.
+   - Isi path `coin_config.json` dan `Symbol`.
+   - Klik **Apply params ke coin_config.json**.
+   - File akan menyimpan snapshot lengkap di `<symbol>.strategy_scalping` dan mengisi beberapa kunci legacy (mis. `be_trigger_pct`, `trailing_step`, `trailing_trigger`, `use_breakeven`, `SLIPPAGE_PCT`) agar kompatibel dengan runner lama.
+
+---
+
+### CLI Dryrun — pakai preset JSON (disarankan)
+```bash
+python tools_dryrun_summary.py \
+  --symbol ADAUSDT \
+  --csv data/ADAUSDT_15m_2025-06-01_to_2025-08-09.csv \
+  --steps 2500 --balance 20 \
+  --params-json presets/scalping_params.json \
+  --preset-key ADAUSDT_15m \
+  --debug-reasons
+```
+
+Prioritas Loader: --params-json (preset) lebih tinggi dari --params-csv (opt results).
+Jika ingin pakai CSV: sediakan --params-csv beserta --min-wr, --min-pf, --min-trades, --prefer, --rank.
+
+Best Practices (menuju WR 70–75% & PF ≥ 2–3)
+
+Pastikan Eksekusi di next bar open (live-like) = ON untuk konsistensi dengan real.
+
+Jika terlalu ketat & trade terlalu sedikit:
+
+- Turunkan score_threshold sedikit (mis. 1.2 → 1.1),
+- Longgarkan sr_near_pct (0.6 → 0.8–1.2),
+- Matikan use_mtf_plus saat eksplor awal; aktifkan lagi setelah stabil.
+
+ML gate:
+
+- Coba naikkan score_threshold jika sinyal terlalu banyak dan PF turun.
+- Sesuaikan be_trigger_pct (0.45%) agar lock-in profit lebih cepat atau lebih longgar.
+
+Validasi multi-simbol (ADA, DOGE, XRP) → konfirmasi kestabilan preset.
+
+### Unit Test
+
+Jalankan:
+
+```bash
+pytest -q
+```
+
+tests/test_param_overrides.py: validasi ekspor ke coin_config.json.
+
+tests/test_export_preset.py: validasi export preset JSON.
+
+tests/test_param_loader_json.py: validasi load preset JSON.
+
 ---
 
 ## Dry‑Run (Replay CSV seperti Live)

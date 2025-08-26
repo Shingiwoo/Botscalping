@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import pandas as pd
 from typing import Dict, Any, Optional
 
@@ -98,4 +99,31 @@ def load_params_from_csv(
         if k in params:
             params[k] = _coerce_bool(params[k])
 
+    return params
+
+def load_params_from_json(
+    preset_path: str,
+    preset_key: str
+) -> Dict[str, Any]:
+    """
+    Baca JSON preset (hasil export Streamlit) dan kembalikan dict param siap pakai.
+    Diharapkan preset menyimpan kunci seperti 'ema_len','sma_len','rsi_period', dst.
+    """
+    with open(preset_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or preset_key not in data:
+        raise KeyError(f"Preset key '{preset_key}' tidak ditemukan di {preset_path}")
+    raw = data[preset_key]
+    params: Dict[str, Any] = dict(raw)  # shallow copy
+    # cast tipe yang umum
+    for k in ("ema_len","sma_len","rsi_period","rsi_long_min","rsi_long_max","rsi_short_min","rsi_short_max"):
+        if k in params and params[k] is not None:
+            params[k] = int(round(float(params[k])))
+    for k in ("min_atr_pct","max_atr_pct","max_body_atr","sl_atr_mult","sl_pct",
+              "trailing_trigger","trailing_step","be_trigger_pct","score_threshold","sr_near_pct"):
+        if k in params and params[k] is not None:
+            params[k] = float(params[k])
+    for k in ("use_sr_filter","use_mtf_plus"):
+        if k in params:
+            params[k] = _coerce_bool(params[k])
     return params

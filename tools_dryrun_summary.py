@@ -20,7 +20,7 @@ from __future__ import annotations
 import os, sys, time, argparse, json
 import pandas as pd
 import numpy as np
-from optimizer.param_loader import load_params_from_csv
+from optimizer.param_loader import load_params_from_csv, load_params_from_json
 
 # pastikan bisa import modul project
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -157,6 +157,8 @@ def main():
     ap.add_argument("--min-pf", type=float, default=2.0)
     ap.add_argument("--min-trades", type=int, default=20)
     ap.add_argument("--prefer", type=str, default="pf_then_wr", choices=["pf_then_wr","wr_then_pf"])
+    ap.add_argument("--params-json", type=str, default=None, help="Path preset JSON.")
+    ap.add_argument("--preset-key", type=str, default=None, help="Key preset, mis. ADAUSDT_15m")
     args = ap.parse_args()
 
     # saran env untuk speed
@@ -171,7 +173,9 @@ def main():
         os.environ["SCORE_THRESHOLD"] = str(float(args.ml_thr))
 
     overrides: dict[str, float | int | bool] = {}
-    if args.params_csv:
+    if args.params_json and args.preset_key:
+        overrides = load_params_from_json(args.params_json, args.preset_key)
+    elif args.params_csv:
         overrides = load_params_from_csv(
             args.params_csv,
             min_wr=args.min_wr,
