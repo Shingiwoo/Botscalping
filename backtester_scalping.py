@@ -4,7 +4,7 @@ import numpy as np
 import os, math, json, warnings, random
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Optional, cast
+from typing import Any, Dict, List, Tuple, Optional
 from ta.trend import EMAIndicator, SMAIndicator, MACD
 from ta.volatility import BollingerBands
 from ta.momentum import RSIIndicator
@@ -62,6 +62,9 @@ st.title("⚡ Backtester — Scalping")
 
 # ========= Header: Panel Ringkasan Active Params =========
 _hdr = st.container()
+
+# ------ Deklarasi awal df agar tidak undefined di Sidebar ------
+df: Optional[pd.DataFrame] = None
 
 st.sidebar.header("📂 Data & Config")
 data_dir = st.sidebar.text_input("Folder Data CSV", value="./data")
@@ -214,17 +217,10 @@ sp1, sp2 = st.sidebar.columns([2, 1])
 with sp1:
     load_preset_path = st.text_input("Path preset JSON", value="presets/scalping_params.json")
 with sp2:
-    try:
-        _freq = pd.infer_freq(df['timestamp']) if 'df' in locals() else None
-        if _freq and _freq.endswith("T"):
-            _tf = f"{_freq[:-1]}m"
-        elif _freq and _freq.endswith("H"):
-            _tf = f"{_freq[:-1]}h"
-        else:
-            _tf = "tf"
-    except Exception:
-        _tf = "tf"
-    load_preset_key = st.text_input("Preset key", value=f"{symbol}_{_tf}")
+    # Jangan akses df di sidebar; gunakan timeframe UI
+    _tf = timeframe if timeframe and timeframe != "as-is" else "tf"
+    default_load_key = f"{symbol}_{_tf}" if symbol else f"SYMBOL_{_tf}"
+    load_preset_key = st.text_input("Preset key", value=default_load_key)
 
 if st.sidebar.button("Load dari JSON"):
     try:
@@ -854,7 +850,7 @@ if selected_file:
         except Exception:
             return "tf"
 
-    default_tf_key = _infer_tf_key(df) if 'df' in locals() and isinstance(df, pd.DataFrame) else "tf"
+    default_tf_key = _infer_tf_key(df) if (isinstance(df, pd.DataFrame) and 'timestamp' in df.columns) else "tf"
     default_preset_key = f"{symbol}_{default_tf_key}"
 
     pc1, pc2 = st.columns([2, 1])
