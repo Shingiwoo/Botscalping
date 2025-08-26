@@ -20,6 +20,7 @@ from __future__ import annotations
 import os, sys, time, argparse, json
 import pandas as pd
 import numpy as np
+from optimizer.param_loader import load_params_from_csv
 
 # pastikan bisa import modul project
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -150,6 +151,12 @@ def main():
     ap.add_argument("--ml-thr", type=float, default=None)
     ap.add_argument("--trailing-step", type=float, default=None)
     ap.add_argument("--trailing-trigger", type=float, default=None)
+    ap.add_argument("--params-csv", type=str, default=None)
+    ap.add_argument("--rank", type=int, default=1)
+    ap.add_argument("--min-wr", type=float, default=70.0)
+    ap.add_argument("--min-pf", type=float, default=2.0)
+    ap.add_argument("--min-trades", type=int, default=20)
+    ap.add_argument("--prefer", type=str, default="pf_then_wr", choices=["pf_then_wr","wr_then_pf"])
     args = ap.parse_args()
 
     # saran env untuk speed
@@ -163,8 +170,19 @@ def main():
     if args.ml_thr is not None:
         os.environ["SCORE_THRESHOLD"] = str(float(args.ml_thr))
 
+    overrides: dict[str, float | int | bool] = {}
+    if args.params_csv:
+        overrides = load_params_from_csv(
+            args.params_csv,
+            min_wr=args.min_wr,
+            min_pf=args.min_pf,
+            min_trades=args.min_trades,
+            prefer=args.prefer,
+            rank=args.rank,
+        )
+
     cfg_path = args.coin_config
-    if args.trailing_step is not None or args.trailing_trigger is not None:
+    if args.trailing_step is not None or args.trailing_trigger is not None or overrides:
         try:
             with open(args.coin_config, "r") as f:
                 cfg = json.load(f)
@@ -175,13 +193,25 @@ def main():
             sym_cfg["trailing_step"] = float(args.trailing_step)
         if args.trailing_trigger is not None:
             sym_cfg["trailing_trigger"] = float(args.trailing_trigger)
+        for k, v in overrides.items():
+            if k == "score_threshold":
+                sym_cfg.setdefault("ml", {})["score_threshold"] = float(v)
+            else:
+                sym_cfg[k] = v
         cfg[args.symbol.upper()] = sym_cfg
         tmp_cfg_path = f"_tmp_{args.symbol.upper()}_cfg.json"
         with open(tmp_cfg_path, "w") as f:
             json.dump(cfg, f)
         cfg_path = tmp_cfg_path
+        if "score_threshold" in overrides:
+            os.environ["SCORE_THRESHOLD"] = str(float(overrides["score_threshold"]))
 
     summary, trades_df = run_dry(args.symbol.upper(), args.csv, cfg_path, args.steps, args.balance)
+
+    if overrides:
+        print("\n=== PARAMETER DIPAKAI ===")
+        for k, v in overrides.items():
+            print(f"{k}: {v}")
 
     print("\n=== SUMMARY ===")
     for k, v in summary.items():

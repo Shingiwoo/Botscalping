@@ -18,6 +18,7 @@ from indicators.sr_utils import (
     htf_trend_ok_multi,
     ltf_momentum_ok,
 )
+from optimizer.param_loader import load_params_from_csv
 
 """
 ============================================================
@@ -123,6 +124,15 @@ leverage = cfgi("leverage", leverage)
 risk_per_trade = cfgf("risk_per_trade", risk_per_trade)
 taker_fee = cfgf("taker_fee", taker_fee)
 
+st.sidebar.header("📈 Indikator")
+ema_len = st.sidebar.number_input("EMA length", value=cfgi("ema_len", 22), min_value=1)
+sma_len = st.sidebar.number_input("SMA length", value=cfgi("sma_len", 20), min_value=1)
+rsi_period = st.sidebar.number_input("RSI period", value=cfgi("rsi_period", 25), min_value=1)
+rsi_long_min = st.sidebar.number_input("RSI long min", value=cfgi("rsi_long_min", 10))
+rsi_long_max = st.sidebar.number_input("RSI long max", value=cfgi("rsi_long_max", 45))
+rsi_short_min = st.sidebar.number_input("RSI short min", value=cfgi("rsi_short_min", 70))
+rsi_short_max = st.sidebar.number_input("RSI short max", value=cfgi("rsi_short_max", 90))
+
 st.sidebar.header("📏 Param SCALPING (Presisi Entri v2)")
 min_atr_pct = st.sidebar.number_input("min_atr_pct", value=cfgf("min_atr_pct", 0.003))
 max_atr_pct = st.sidebar.number_input("max_atr_pct", value=cfgf("max_atr_pct", 0.03))
@@ -178,6 +188,63 @@ if debug_mode:
     max_body_atr = 999.0
     cooldown_seconds = 0
 
+use_next_bar_entry = st.sidebar.checkbox(
+    "Eksekusi di next bar open (live-like)", value=True,
+    help="Jika ON, sinyal di bar i dieksekusi pada open bar i+1 dengan slippage."
+)
+slippage_pct = st.sidebar.slider("Slippage eksekusi (%)", 0.0, 0.30, 0.02, 0.01)
+use_sr_filter = st.sidebar.checkbox(
+    "Filter Support/Resistance", value=True,
+    help="Hindari LONG dekat resistance kuat & SHORT dekat support kuat."
+)
+sr_near_pct = st.sidebar.slider("Batas dekat level (%)", 0.1, 2.0, 0.6, 0.1)
+use_mtf_plus = st.sidebar.checkbox(
+    "Multi-timeframe 1H+4H + LTF momentum", value=False,
+    help="EMA50>=EMA200 sinkron di 1H & 4H; timing pakai ROC/RSI mikro."
+)
+if debug_mode:
+    use_mtf_plus = False
+
+st.sidebar.markdown("### 🎯 Load Optimized Params")
+opt_path = st.sidebar.text_input("CSV hasil optimasi", value="", placeholder="/path/opt_results-ADA.csv")
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    opt_min_wr = st.number_input("Min WR (%)", 0.0, 100.0, 70.0, 0.5)
+    opt_min_pf = st.number_input("Min PF", 0.0, 10.0, 2.0, 0.1)
+with col2:
+    opt_min_trades = st.number_input("Min Trades", 0, 1000, 20, 1)
+    opt_rank = st.number_input("Ambil peringkat ke-", 1, 50, 1, 1)
+opt_prefer = st.selectbox("Urutan preferensi", ["pf_then_wr", "wr_then_pf"], index=0)
+if st.sidebar.button("Apply dari CSV"):
+    try:
+        overrides = load_params_from_csv(
+            opt_path, min_wr=opt_min_wr, min_pf=opt_min_pf,
+            min_trades=opt_min_trades, prefer=opt_prefer, rank=int(opt_rank)
+        )
+        ema_len = int(overrides.get("ema_len", ema_len))
+        sma_len = int(overrides.get("sma_len", sma_len))
+        rsi_period = int(overrides.get("rsi_period", rsi_period))
+        rsi_long_min = int(overrides.get("rsi_long_min", rsi_long_min))
+        rsi_long_max = int(overrides.get("rsi_long_max", rsi_long_max))
+        rsi_short_min = int(overrides.get("rsi_short_min", rsi_short_min))
+        rsi_short_max = int(overrides.get("rsi_short_max", rsi_short_max))
+        min_atr_pct = float(overrides.get("min_atr_pct", min_atr_pct))
+        max_atr_pct = float(overrides.get("max_atr_pct", max_atr_pct))
+        max_body_atr = float(overrides.get("max_body_atr", max_body_atr))
+        sl_atr_mult = float(overrides.get("sl_atr_mult", sl_atr_mult))
+        sl_pct = float(overrides.get("sl_pct", sl_pct))
+        trailing_trigger = float(overrides.get("trailing_trigger", trailing_trigger))
+        trailing_step = float(overrides.get("trailing_step", trailing_step))
+        be_trigger_pct = float(overrides.get("be_trigger_pct", be_trigger_pct))
+        score_threshold = float(overrides.get("score_threshold", score_threshold))
+        sr_near_pct = float(overrides.get("sr_near_pct", sr_near_pct))
+        use_sr_filter = bool(overrides.get("use_sr_filter", use_sr_filter))
+        use_mtf_plus = bool(overrides.get("use_mtf_plus", use_mtf_plus))
+
+        st.sidebar.success("Optimized params diterapkan ✅")
+    except Exception as e:
+        st.sidebar.error(f"Gagal load params: {e}")
+
 # ---------- Load CSV ----------
 if selected_file:
     path = os.path.join(data_dir, selected_file)
@@ -218,10 +285,10 @@ if selected_file:
         bar_seconds = 0
 
     # ---------- Indicators ----------
-    df['ema'] = EMAIndicator(df['close'], 22).ema_indicator()
-    df['ma'] = SMAIndicator(df['close'], 20).sma_indicator()
+    df['ema'] = EMAIndicator(df['close'], ema_len).ema_indicator()
+    df['ma'] = SMAIndicator(df['close'], sma_len).sma_indicator()
     macd = MACD(df['close']); df['macd']=macd.macd(); df['macd_signal']=macd.macd_signal()
-    rsi = RSIIndicator(df['close'], 25); df['rsi']=rsi.rsi()
+    rsi = RSIIndicator(df['close'], rsi_period); df['rsi']=rsi.rsi()
 
     prev_close = df['close'].shift(1)
     tr = pd.DataFrame({'a': df['high']-df['low'],
@@ -278,16 +345,6 @@ if selected_file:
     def apply_slippage(price: float, side: str, slip_pct: float) -> float:
         return price*(1+slip_pct/100.0) if side.lower().startswith('buy') else price*(1-slip_pct/100.0)
 
-    use_next_bar_entry = st.sidebar.checkbox("Eksekusi di next bar open (live-like)", value=True, help="Jika ON, sinyal di bar i dieksekusi pada open bar i+1 dengan slippage.")
-    slippage_pct = st.sidebar.slider("Slippage eksekusi (%)", 0.0, 0.30, 0.02, 0.01)
-
-    use_sr_filter = st.sidebar.checkbox("Filter Support/Resistance", value=True,
-        help="Hindari LONG dekat resistance kuat & SHORT dekat support kuat.")
-    sr_near_pct = st.sidebar.slider("Batas dekat level (%)", 0.1, 2.0, 0.6, 0.1)
-    use_mtf_plus = st.sidebar.checkbox("Multi-timeframe 1H+4H + LTF momentum", value=False,
-        help="EMA50>=EMA200 sinkron di 1H & 4H; timing pakai ROC/RSI mikro.")
-    if debug_mode:
-        use_mtf_plus = False
     # cache level S/R agar hemat komputasi
     sr_cache = build_sr_cache(df, lb=3, window=300, k=6, recalc_every=10)
 
@@ -298,9 +355,9 @@ if selected_file:
         row = df.iloc[i]
         sc_long = 0.0; sc_short = 0.0
         # base scoring
-        if row['ema'] > row['ma'] and row['macd'] > row['macd_signal'] and (10 <= row['rsi'] <= 45):
+        if row['ema'] > row['ma'] and row['macd'] > row['macd_signal'] and (rsi_long_min <= row['rsi'] <= rsi_long_max):
             sc_long += 1
-        if row['ema'] < row['ma'] and row['macd'] < row['macd_signal'] and (70 <= row['rsi'] <= 90):
+        if row['ema'] < row['ma'] and row['macd'] < row['macd_signal'] and (rsi_short_min <= row['rsi'] <= rsi_short_max):
             sc_short += 1
         if use_ml:
             up_p   = float(up_prob.iloc[i])   if not pd.isna(up_prob.iloc[i])   else None
@@ -599,8 +656,8 @@ if selected_file:
 
     # ---------- Diagnostics ----------
     with st.expander("📟 Diagnostics (cek kenapa nggak entry)", expanded=False):
-        base_long = int(((df['ema']>df['ma']) & (df['macd']>df['macd_signal']) & df['rsi'].between(40,60)).sum())
-        base_short = int(((df['ema']<df['ma']) & (df['macd']<df['macd_signal']) & df['rsi'].between(30,60)).sum())
+        base_long = int(((df['ema']>df['ma']) & (df['macd']>df['macd_signal']) & df['rsi'].between(rsi_long_min, rsi_long_max)).sum())
+        base_short = int(((df['ema']<df['ma']) & (df['macd']<df['macd_signal']) & df['rsi'].between(rsi_short_min, rsi_short_max)).sum())
         atr_ok = int((df['atr_pct'].between(min_atr_pct, max_atr_pct)).sum())
         st.write({
             "total_bar": int(len(df)),
