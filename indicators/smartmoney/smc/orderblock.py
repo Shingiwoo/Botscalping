@@ -1,4 +1,5 @@
 from __future__ import annotations
+import numpy as np
 import pandas as pd
 from typing import List, Deque, Optional
 from collections import deque
@@ -23,6 +24,27 @@ class OrderBlockEngine:
         last_bear = bear.iloc[-1] if len(bear) else None
         last_bull = bull.iloc[-1] if len(bull) else None
         return last_bull, last_bear
+    # --- Helper aman-typing: pastikan indeks integer & Timestamp ---
+    def _pos_of_label(self, df: pd.DataFrame, label, upper_bound: int) -> int:
+        """Ambil posisi integer 'label' pada index df, pilih kemunculan terakhir < upper_bound."""
+        idx = df.index
+        try:
+            candidates = np.flatnonzero(idx.values == label)
+        except Exception:
+            candidates = np.flatnonzero(idx.astype(object).values == label)
+        candidates = candidates[candidates < upper_bound]
+        if len(candidates):
+            return int(candidates[-1])
+        return int(max(0, upper_bound - 1))
+
+    def _to_timestamp(self, raw, fallback: pd.Timestamp) -> pd.Timestamp:
+        try:
+            ts = pd.to_datetime(raw)
+            if pd.isna(ts):
+                return fallback
+            return ts
+        except Exception:
+            return fallback
 
     def on_structure_event(self, ev: SMCEvent, df: pd.DataFrame) -> List[SMCEvent]:
         out: List[SMCEvent] = []
@@ -39,20 +61,22 @@ class OrderBlockEngine:
                 if "bull" in ev.type or is_bull:
                     # Bullish break -> cari last bearish candle jadi Demand OB
                     if last_bear is not None:
+                        start_idx = self._pos_of_label(df, last_bear.name, i)
+                        start_time = self._to_timestamp(last_bear.name, df.index[start_idx])
                         ob = OrderBlock("internal","bull",
                                         top=float(last_bear['high']), bottom=float(last_bear['low']),
-                                        start_idx=int(last_bear.name.value if hasattr(last_bear.name,'value') else df.index.get_loc(last_bear.name)),
-                                        start_time=last_bear.name,
+                                        start_idx=start_idx, start_time=start_time,
                                         mitigation=self.cfg.ob_mitigation)
                         self.internal_obs.appendleft(ob)
                         out.append(SMCEvent("internal_ob_new", ev.symbol, ev.timeframe, i, t, {'ob': ob.__dict__}))
                 if "bear" in ev.type or is_bear:
                     # Bearish break -> cari last bullish candle jadi Supply OB
                     if last_bull is not None:
+                        start_idx = self._pos_of_label(df, last_bull.name, i)
+                        start_time = self._to_timestamp(last_bull.name, df.index[start_idx])
                         ob = OrderBlock("internal","bear",
                                         top=float(last_bull['high']), bottom=float(last_bull['low']),
-                                        start_idx=int(last_bull.name.value if hasattr(last_bull.name,'value') else df.index.get_loc(last_bull.name)),
-                                        start_time=last_bull.name,
+                                        start_idx=start_idx, start_time=start_time,
                                         mitigation=self.cfg.ob_mitigation)
                         self.internal_obs.appendleft(ob)
                         out.append(SMCEvent("internal_ob_new", ev.symbol, ev.timeframe, i, t, {'ob': ob.__dict__}))
@@ -60,19 +84,21 @@ class OrderBlockEngine:
             if 'swing' in ev.type and self.cfg.show_swing_ob:
                 if "bull" in ev.type or is_bull:
                     if last_bear is not None:
+                        start_idx = self._pos_of_label(df, last_bear.name, i)
+                        start_time = self._to_timestamp(last_bear.name, df.index[start_idx])
                         ob = OrderBlock("swing","bull",
                                         top=float(last_bear['high']), bottom=float(last_bear['low']),
-                                        start_idx=int(last_bear.name.value if hasattr(last_bear.name,'value') else df.index.get_loc(last_bear.name)),
-                                        start_time=last_bear.name,
+                                        start_idx=start_idx, start_time=start_time,
                                         mitigation=self.cfg.ob_mitigation)
                         self.swing_obs.appendleft(ob)
                         out.append(SMCEvent("swing_ob_new", ev.symbol, ev.timeframe, i, t, {'ob': ob.__dict__}))
                 if "bear" in ev.type or is_bear:
                     if last_bull is not None:
+                        start_idx = self._pos_of_label(df, last_bull.name, i)
+                        start_time = self._to_timestamp(last_bull.name, df.index[start_idx])
                         ob = OrderBlock("swing","bear",
                                         top=float(last_bull['high']), bottom=float(last_bull['low']),
-                                        start_idx=int(last_bull.name.value if hasattr(last_bull.name,'value') else df.index.get_loc(last_bull.name)),
-                                        start_time=last_bull.name,
+                                        start_idx=start_idx, start_time=start_time,
                                         mitigation=self.cfg.ob_mitigation)
                         self.swing_obs.appendleft(ob)
                         out.append(SMCEvent("swing_ob_new", ev.symbol, ev.timeframe, i, t, {'ob': ob.__dict__}))
