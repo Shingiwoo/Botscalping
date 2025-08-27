@@ -1,7 +1,7 @@
 # indicators/scsignals.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Mapping
 import numpy as np
 import pandas as pd
 from collections import deque
@@ -42,12 +42,24 @@ class SCConfig:
     cooldown_bars: int = 5   # cegah spam sinyal (jumlah bar di TF dasar)
     base_tf: str = "1m"      # TF data yang masuk ke indikator (untuk resample HTF)
 
+    @classmethod
+    def from_dict(cls, d: Optional[Mapping[str, Any]] = None) -> "SCConfig":
+        if not d:
+            return cls()
+        fields = {k: d[k] for k in cls.__annotations__.keys() if k in d}
+        return cls(**fields)
+
 # ---------- Utilitas Teknis ----------
 _PANDAS_OFFSET = {
-    "1m": "1T", "3m": "3T", "5m": "5T", "15m": "15T", "30m": "30T",
+    "1m": "1min", "3m": "3min", "5m": "5min", "15m": "15min", "30m": "30min",
     "1h": "1H", "2h": "2H", "4h": "4H", "6h": "6H", "12h": "12H",
     "1d": "1D"
 }
+
+
+def _num(s: pd.Series) -> pd.Series:
+    """Pastikan seri bertipe float64 agar operasi numerik aman."""
+    return pd.to_numeric(s, errors="coerce").astype("float64").fillna(0.0)
 
 def _rma(series: pd.Series, length: int) -> pd.Series:
     """Wilder's RMA. Kompatibel dengan Pine ta.rma."""
@@ -128,6 +140,9 @@ class SCSignals:
         """
         assert {"open", "high", "low", "close"}.issubset(df.columns)
         d = df.copy().sort_index()
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in d:
+                d[col] = _num(d[col])
 
         # ATR & Scalper line
         atr = _atr(d["high"], d["low"], d["close"], self.cfg.atr_len)
@@ -176,8 +191,8 @@ class SCSignals:
         )
 
         # Cooldown (vector: kita hitung belakangan di streamer; di sini flag mentah)
-        buy_raw = cross_up & buy_filters
-        sell_raw = cross_dn & sell_filters
+        buy_raw = (cross_up & buy_filters).astype("float64")
+        sell_raw = (cross_dn & sell_filters).astype("float64")
 
         out = d.copy()
         out["scalper_line"] = line
@@ -187,6 +202,7 @@ class SCSignals:
         out["atr"] = atr
         out["adx"] = adx
         out["body_to_atr"] = body_to_atr
+        out["rsi"] = rsi
         out["ema_fast_htf"] = ema_fast_htf if self.cfg.use_htf else np.nan
         out["ema_slow_htf"] = ema_slow_htf if self.cfg.use_htf else np.nan
         out["trend_up"] = trend_up if self.cfg.use_htf else False
@@ -256,4 +272,25 @@ class SCSignals:
                 "cfg": self.cfg.__dict__
             }
         }
+ 
+
+def compute_all(df: pd.DataFrame, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Wrapper util: mengembalikan seri penting tanpa field palsu."""
+    cfg = cfg or {}
+    ind = SCSignals(SCConfig.from_dict(cfg))
+    if "timestamp" in df.columns:
+        df = df.set_index("timestamp")
+    out = ind.compute_all(df)
+    return {
+        "scalper_line": out["scalper_line"],
+        "upper": out["upper"],
+        "lower": out["lower"],
+        "atr": out["atr"],
+        "adx": out["adx"],
+        "body_to_atr": out["body_to_atr"],
+        "width_atr": out["width_atr"],
+        "rsi": out["rsi"],
+        "buy_raw": out["buy_raw"],
+        "sell_raw": out["sell_raw"],
+    }
 
