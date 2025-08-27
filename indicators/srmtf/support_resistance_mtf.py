@@ -36,7 +36,8 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Util Timeframe & Resample
 # ---------------------------------------------------------------------------
-_TF_ALIASES = {"1m": "1T", "5m": "5T", "15m": "15T", "1h": "1H", "4h": "4H"}
+# Gunakan notasi offset baru ('min'/'h') agar bebas FutureWarning
+_TF_ALIASES = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h", "4h": "4h"}
 _TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240}
 
 
@@ -58,8 +59,15 @@ def resample_ohlcv(df: pd.DataFrame, tf: str) -> pd.DataFrame:
     df: index datetime, kolom ['open','high','low','close','volume']
     """
     rule = tf_to_offset(tf)
-    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-    out = df.resample(rule, label="right", closed="right").agg(agg).dropna()
+    # Gunakan NamedAgg agar ramah Pylance/pyright (hindari error typing pada dict[str,str])
+    grp = df.resample(rule, label="right", closed="right")
+    out = grp.agg(
+        open=("open", "first"),
+        high=("high", "max"),
+        low=("low", "min"),
+        close=("close", "last"),
+        volume=("volume", "sum"),
+    ).dropna()
     return out
 
 
@@ -171,7 +179,9 @@ class SupportResistanceMTF:
             thickness = level * (r * 0.17 * self.sr_margin)
             top = level
             bottom = max(level - thickness, 0.0)
-            zones.append(Zone("R", top, bottom, level, tf, ts, r))
+            # Pastikan created_at selalu pd.Timestamp (Pylance: Hashable -> Timestamp)
+            ts_pd = ts if isinstance(ts, pd.Timestamp) else pd.Timestamp(ts)
+            zones.append(Zone("R", top, bottom, level, tf, ts_pd, r))
 
         for ts, is_pl in pl.items():
             if not is_pl:
@@ -181,7 +191,9 @@ class SupportResistanceMTF:
             thickness = level * (r * 0.17 * self.sr_margin)
             bottom = level
             top = level + thickness
-            zones.append(Zone("S", top, bottom, level, tf, ts, r))
+            # Pastikan created_at selalu pd.Timestamp (Pylance: Hashable -> Timestamp)
+            ts_pd = ts if isinstance(ts, pd.Timestamp) else pd.Timestamp(ts)
+            zones.append(Zone("S", top, bottom, level, tf, ts_pd, r))
 
         zones = self._merge_close_zones(zones)
         return zones
