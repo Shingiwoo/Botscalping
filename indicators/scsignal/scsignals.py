@@ -152,27 +152,28 @@ class SCSignals:
         """
         assert {"open", "high", "low", "close"}.issubset(df.columns)
         d = df.copy().sort_index()
-        for col in ["open", "high", "low", "close", "volume"]:
+        # Pastikan OHLCV numerik agar semua operasi & komparasi valid untuk type checker
+        for col in ("open", "high", "low", "close", "volume"):
             if col in d:
-                d[col] = _num(d[col])
+                d[col] = pd.to_numeric(d[col], errors="coerce").astype("float64")
 
         # ATR & Scalper line (pastikan semua float64)
-        atr = _num(_atr(d["high"], d["low"], d["close"], self.cfg.atr_len))
-        line = _num(d["close"].rolling(self.cfg.sma_period).mean() - (atr * self.cfg.atr_mult))
-        upper = _num(_donchian_high(d["high"], self.cfg.length))
-        lower = _num(_donchian_low(d["low"], self.cfg.length))
-        width_atr = _num((upper - lower) / atr.replace(0, np.nan))
+        atr = _atr(d["high"], d["low"], d["close"], self.cfg.atr_len).astype("float64")
+        line = (d["close"].rolling(self.cfg.sma_period).mean() - (atr * float(self.cfg.atr_mult))).astype("float64")
+        upper = _donchian_high(d["high"], self.cfg.length).astype("float64")
+        lower = _donchian_low(d["low"], self.cfg.length).astype("float64")
+        width_atr = ((upper - lower) / atr.replace(0, np.nan)).astype("float64")
 
         # ADX / BodyATR / RSI (float64)
-        adx = _num(_adx(d["high"], d["low"], d["close"], self.cfg.adx_len))
-        body_to_atr = _num((d["close"] - d["open"]).abs() / atr.replace(0, np.nan))
-        rsi = _num(_rsi(d["close"], self.cfg.rsi_len))
+        adx = _adx(d["high"], d["low"], d["close"], self.cfg.adx_len).astype("float64")
+        body_to_atr = ((d["close"] - d["open"]).abs() / atr.replace(0, np.nan)).astype("float64")
+        rsi = _rsi(d["close"], self.cfg.rsi_len).astype("float64")
 
         # HTF EMA
         if self.cfg.use_htf:
             close_htf = _resample_close(d, self.cfg.htf).reindex(d.index, method="ffill")
-            ema_fast_htf = _num(close_htf.ewm(span=self.cfg.ema_fast_len, adjust=False).mean())
-            ema_slow_htf = _num(close_htf.ewm(span=self.cfg.ema_slow_len, adjust=False).mean())
+            ema_fast_htf = close_htf.ewm(span=self.cfg.ema_fast_len, adjust=False).mean().astype("float64")
+            ema_slow_htf = close_htf.ewm(span=self.cfg.ema_slow_len, adjust=False).mean().astype("float64")
             trend_up = (ema_fast_htf > ema_slow_htf)
             trend_dn = (ema_fast_htf < ema_slow_htf)
         else:
@@ -182,7 +183,7 @@ class SCSignals:
         cross_up = (d["close"].shift(1) <= line.shift(1)) & (d["close"] > line)
         cross_dn = (d["close"].shift(1) >= line.shift(1)) & (d["close"] < line)
 
-        # Filters (tanpa ~ pada boolean literal; semua seri sudah float/bool)
+        # Build filter tanpa operator ~ pada boolean config (jelas untuk type checker)
         all_true = pd.Series(True, index=d.index)
         cond_trend_up  = trend_up  if self.cfg.use_htf else all_true
         cond_trend_dn  = trend_dn  if self.cfg.use_htf else all_true
