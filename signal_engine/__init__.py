@@ -1,2 +1,3 @@
-# SPDX-License-Identifier: MIT
+"""signal_engine package"""
 
+# SPDX-License-Identifier: MIT

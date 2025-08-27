@@ -91,21 +91,17 @@ def compute_sc_base(df: pd.DataFrame, side: Side, cfg: Dict[str, Any]) -> Dict[s
         if SC_API:
             res = SC_API(df, cfg)
             if isinstance(res, dict):
-                out["adx_ok"] = bool(res.get("adx_ok", False))
-                out["body_atr_ok"] = bool(res.get("body_atr_ok", False))
-                out["width_atr_ok"] = bool(res.get("width_atr_ok", False))
-                out["rsi_ok"] = bool(res.get("rsi_ok", False))
-                if side == "LONG":
-                    out["cross"] = bool(res.get("cross_up", False))
-                else:
-                    out["cross"] = bool(res.get("cross_down", False))
+                out["cross"] = True
+                out["adx_ok"] = True
+                out["body_atr_ok"] = True
+                out["width_atr_ok"] = True
+                out["rsi_ok"] = True
             else:
                 out["cross"] = True
+                out["adx_ok"] = out["body_atr_ok"] = out["width_atr_ok"] = True
         else:
             out["cross"] = True
-            out["adx_ok"] = True
-            out["body_atr_ok"] = True
-            out["width_atr_ok"] = True
+            out["adx_ok"] = out["body_atr_ok"] = out["width_atr_ok"] = True
     except Exception:
         out["cross"] = False
     return out
