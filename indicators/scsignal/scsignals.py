@@ -92,17 +92,24 @@ def _rsi(c: pd.Series, length: int) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 def _adx(h: pd.Series, l: pd.Series, c: pd.Series, length: int) -> pd.Series:
-    # Pastikan numerik untuk komparasi dan ketenangan type checker
-    h = _num(h)
-    l = _num(l)
-    c = _num(c)
+    # Konversi eksplisit ke float
+    h = pd.to_numeric(h, errors='coerce')
+    l = pd.to_numeric(l, errors='coerce')
+    c = pd.to_numeric(c, errors='coerce')
+    
     up_move = h.diff()
     dn_move = -l.diff()
-    # Gunakan mask vektor & bandingkan terhadap 0.0 (float)
-    cond_plus  = (up_move > dn_move) & (up_move > 0.0)
+    
+    # Konversi ke float untuk operasi komparasi
+    up_move = up_move.astype('float64')
+    dn_move = dn_move.astype('float64')
+    
+    cond_plus = (up_move > dn_move) & (up_move > 0.0)
     cond_minus = (dn_move > up_move) & (dn_move > 0.0)
-    plus_dm  = pd.Series(np.where(cond_plus,  up_move,  0.0), index=h.index, dtype='float64')
+    
+    plus_dm = pd.Series(np.where(cond_plus, up_move, 0.0), index=h.index, dtype='float64')
     minus_dm = pd.Series(np.where(cond_minus, dn_move, 0.0), index=h.index, dtype='float64')
+    
     atr_len = length
     atrx = _atr(h, l, c, atr_len).replace(0, np.nan)
     pdi = 100 * _rma(plus_dm, length) / atrx
