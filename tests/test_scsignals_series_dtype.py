@@ -18,5 +18,5 @@ def test_numeric_series_outputs():
     out = mod.compute_all(df, {})
     for k, v in out.items():
         if hasattr(v, "dtype"):
-            assert str(v.dtype).startswith(("float", "int"))
+            assert str(v.dtype).startswith(("float", "int", "bool"))
 

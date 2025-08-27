@@ -149,26 +149,25 @@ class SCSignals:
             if col in d:
                 d[col] = _num(d[col])
 
-        # ATR & Scalper line
-        atr = _atr(d["high"], d["low"], d["close"], self.cfg.atr_len)
-        line = d["close"].rolling(self.cfg.sma_period).mean() - (atr * self.cfg.atr_mult)
+        # ATR & Scalper line (pastikan semua float64)
+        atr = _num(_atr(d["high"], d["low"], d["close"], self.cfg.atr_len))
+        line = _num(d["close"].rolling(self.cfg.sma_period).mean() - (atr * self.cfg.atr_mult))
+        upper = _num(_donchian_high(d["high"], self.cfg.length))
+        lower = _num(_donchian_low(d["low"], self.cfg.length))
+        width_atr = _num((upper - lower) / atr.replace(0, np.nan))
 
-        upper = _donchian_high(d["high"], self.cfg.length)
-        lower = _donchian_low(d["low"], self.cfg.length)
-        width_atr = (upper - lower) / atr.replace(0, np.nan)
-
-        # ADX / BodyATR / RSI
-        adx = _adx(d["high"], d["low"], d["close"], self.cfg.adx_len)
-        body_to_atr = (d["close"] - d["open"]).abs() / atr.replace(0, np.nan)
-        rsi = _rsi(d["close"], self.cfg.rsi_len)
+        # ADX / BodyATR / RSI (float64)
+        adx = _num(_adx(d["high"], d["low"], d["close"], self.cfg.adx_len))
+        body_to_atr = _num((d["close"] - d["open"]).abs() / atr.replace(0, np.nan))
+        rsi = _num(_rsi(d["close"], self.cfg.rsi_len))
 
         # HTF EMA
         if self.cfg.use_htf:
             close_htf = _resample_close(d, self.cfg.htf).reindex(d.index, method="ffill")
-            ema_fast_htf = close_htf.ewm(span=self.cfg.ema_fast_len, adjust=False).mean()
-            ema_slow_htf = close_htf.ewm(span=self.cfg.ema_slow_len, adjust=False).mean()
-            trend_up = ema_fast_htf > ema_slow_htf
-            trend_dn = ema_fast_htf < ema_slow_htf
+            ema_fast_htf = _num(close_htf.ewm(span=self.cfg.ema_fast_len, adjust=False).mean())
+            ema_slow_htf = _num(close_htf.ewm(span=self.cfg.ema_slow_len, adjust=False).mean())
+            trend_up = (ema_fast_htf > ema_slow_htf)
+            trend_dn = (ema_fast_htf < ema_slow_htf)
         else:
             ema_fast_htf = ema_slow_htf = trend_up = trend_dn = pd.Series(False, index=d.index)
 
@@ -176,28 +175,22 @@ class SCSignals:
         cross_up = (d["close"].shift(1) <= line.shift(1)) & (d["close"] > line)
         cross_dn = (d["close"].shift(1) >= line.shift(1)) & (d["close"] < line)
 
-        # Filters
-        buy_filters = (
-            (~self.cfg.use_htf | trend_up) &
-            (~self.cfg.use_adx | (adx >= self.cfg.min_adx)) &
-            (~self.cfg.use_body_atr | (body_to_atr >= self.cfg.min_body_atr)) &
-            (~self.cfg.use_width_atr | (width_atr >= self.cfg.min_width_atr)) &
-            (~self.cfg.use_rsi | (rsi > self.cfg.rsi_buy)) &
-            (d["close"] < upper)
-        )
+        # Filters (tanpa ~ pada boolean literal; semua seri sudah float/bool)
+        all_true = pd.Series(True, index=d.index)
+        cond_trend_up  = trend_up  if self.cfg.use_htf else all_true
+        cond_trend_dn  = trend_dn  if self.cfg.use_htf else all_true
+        cond_adx       = (adx >= float(self.cfg.min_adx)) if self.cfg.use_adx else all_true
+        cond_bodyatr   = (body_to_atr >= float(self.cfg.min_body_atr)) if self.cfg.use_body_atr else all_true
+        cond_widthatr  = (width_atr >= float(self.cfg.min_width_atr)) if self.cfg.use_width_atr else all_true
+        cond_rsi_buy   = (rsi > float(self.cfg.rsi_buy)) if self.cfg.use_rsi else all_true
+        cond_rsi_sell  = (rsi < float(self.cfg.rsi_sell)) if self.cfg.use_rsi else all_true
 
-        sell_filters = (
-            (~self.cfg.use_htf | trend_dn) &
-            (~self.cfg.use_adx | (adx >= self.cfg.min_adx)) &
-            (~self.cfg.use_body_atr | (body_to_atr >= self.cfg.min_body_atr)) &
-            (~self.cfg.use_width_atr | (width_atr >= self.cfg.min_width_atr)) &
-            (~self.cfg.use_rsi | (rsi < self.cfg.rsi_sell)) &
-            (d["close"] > lower)
-        )
+        buy_filters  = cond_trend_up & cond_adx & cond_bodyatr & cond_widthatr & cond_rsi_buy & (d["close"] < upper)
+        sell_filters = cond_trend_dn & cond_adx & cond_bodyatr & cond_widthatr & cond_rsi_sell & (d["close"] > lower)
 
-        # Cooldown (vector: kita hitung belakangan di streamer; di sini flag mentah)
-        buy_raw = (cross_up & buy_filters).astype("float64")
-        sell_raw = (cross_dn & sell_filters).astype("float64")
+        # Raw signal (boolean series)
+        buy_raw = (cross_up & buy_filters)
+        sell_raw = (cross_dn & sell_filters)
 
         out = d.copy()
         out["scalper_line"] = line
