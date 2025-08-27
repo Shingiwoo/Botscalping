@@ -92,12 +92,17 @@ def _rsi(c: pd.Series, length: int) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 def _adx(h: pd.Series, l: pd.Series, c: pd.Series, length: int) -> pd.Series:
+    # Pastikan numerik untuk komparasi dan ketenangan type checker
+    h = _num(h)
+    l = _num(l)
+    c = _num(c)
     up_move = h.diff()
     dn_move = -l.diff()
-    plus_dm = np.where((up_move > dn_move) & (up_move > 0), up_move, 0.0)
-    minus_dm = np.where((dn_move > up_move) & (dn_move > 0), dn_move, 0.0)
-    plus_dm = pd.Series(plus_dm, index=h.index)
-    minus_dm = pd.Series(minus_dm, index=h.index)
+    # Gunakan mask vektor & bandingkan terhadap 0.0 (float)
+    cond_plus  = (up_move > dn_move) & (up_move > 0.0)
+    cond_minus = (dn_move > up_move) & (dn_move > 0.0)
+    plus_dm  = pd.Series(np.where(cond_plus,  up_move,  0.0), index=h.index, dtype='float64')
+    minus_dm = pd.Series(np.where(cond_minus, dn_move, 0.0), index=h.index, dtype='float64')
     atr_len = length
     atrx = _atr(h, l, c, atr_len).replace(0, np.nan)
     pdi = 100 * _rma(plus_dm, length) / atrx
