@@ -316,7 +316,7 @@ class UltimateRSI:
             return (True, "ARSI_CROSS_DOWN_OB")
         return (False, None)
 
-    def generate_event(self, symbol: str, timestamp: Union[pd.Timestamp, float, int, None] = None) -> Optional[Dict]:
+    def generate_event(self, symbol: str, timestamp: Union[pd.Timestamp, float, int, str, None] = None) -> Optional[Dict]:
         if self.arsi is None or self.signal is None:
             return None
         crossed, reason = self.has_signal_cross()
@@ -329,6 +329,7 @@ class UltimateRSI:
             "type": "indicator_signal",
             "name": "URSI",
             "symbol": symbol,
+            # izinkan str/int/float/Timestamp; Pylance happy & runtime aman
             "time": pd.Timestamp(timestamp) if timestamp is not None else pd.Timestamp.utcnow(),
             "arsi": float(self.arsi) if self.arsi is not None else None,
             "signal": float(self.signal) if self.signal is not None else None,
@@ -366,7 +367,7 @@ class URSIAdapter:
         self.symbol = symbol
         self.ind = UltimateRSI(cfg)
         self.queue = queue
-    def on_price(self, x: Union[float, Tuple[float, float, float, float]], timestamp: Union[pd.Timestamp, float, int, None] = None):
+    def on_price(self, x: Union[float, Tuple[float, float, float, float]], timestamp: Union[pd.Timestamp, float, int, str, None] = None):
         self.ind.update(x)
         evt = self.ind.generate_event(self.symbol, timestamp)
         if evt and self.queue is not None:
@@ -397,6 +398,7 @@ if __name__ == "__main__":
     for t, row in df.tail(20).iterrows():
         ohlc = (row.open, row.high, row.low, row.close)
         snap = ursi.update(ohlc)
-        evt = ursi.generate_event(symbol="BTCUSDT", timestamp=pd.Timestamp(t))
+        # Cast via str agar tidak dianggap "Hashable" oleh Pylance (overload Timestamp menerima str)
+        evt = ursi.generate_event(symbol="BTCUSDT", timestamp=pd.Timestamp(str(t)))
         if evt and evt["reason"]:
             print(t, evt)

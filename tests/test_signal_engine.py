@@ -10,7 +10,7 @@ from signal_engine.regime import scale_weights
 
 
 def _df(n=300):
-    ts = pd.date_range("2024-01-01", periods=n, freq="5T")
+    ts = pd.date_range("2024-01-01", periods=n, freq="5min")
     price = pd.Series(np.linspace(100, 110, n))
     df = pd.DataFrame({
         "timestamp": ts,
