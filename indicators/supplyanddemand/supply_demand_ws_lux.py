@@ -20,16 +20,23 @@ Lisensi: MIT
 
 import asyncio
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
-
+from typing import Callable, Dict, List, Optional, Tuple, Any, TYPE_CHECKING, cast
 import numpy as np
 import pandas as pd
+import numpy.typing as npt
 
 try:
     from binance import AsyncClient, BinanceSocketManager
 except Exception:  # pragma: no cover
     AsyncClient = None  # type: ignore
     BinanceSocketManager = None  # type: ignore
+
+if TYPE_CHECKING:
+    from binance import AsyncClient as _AsyncClient
+    from binance import BinanceSocketManager as _BinanceSocketManager
+else:  # fallback agar type checker tidak error jika lib tak terpasang
+    _AsyncClient = Any  # type: ignore
+    _BinanceSocketManager = Any  # type: ignore
 
 
 # =============================
@@ -86,7 +93,7 @@ class SupplyDemandVisibleRange:
 
     # ---- Utilitas ----
     @staticmethod
-    def _weighted_avg(prices: np.ndarray, weights: np.ndarray) -> float:
+    def _weighted_avg(prices: npt.NDArray[np.float_], weights: npt.NDArray[np.float_]) -> float:
         w = float(np.sum(weights))
         if w <= 0 or prices.size == 0:
             return float("nan")
@@ -239,14 +246,16 @@ class BinanceKlineStreamer:
         self.limit = int(limit)
         self.api_key = api_key
         self.api_secret = api_secret
-        self._client: Optional[AsyncClient] = None
-        self._bm: Optional[BinanceSocketManager] = None
+        self._client: Optional[_AsyncClient] = None
+        self._bm: Optional[_BinanceSocketManager] = None
 
     async def __aenter__(self):
         if AsyncClient is None:
             raise RuntimeError("python-binance belum terpasang. pip install python-binance")
         self._client = await AsyncClient.create(self.api_key, self.api_secret)
-        self._bm = BinanceSocketManager(self._client)
+        client = self._client
+        assert client is not None
+        self._bm = BinanceSocketManager(client)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -254,16 +263,18 @@ class BinanceKlineStreamer:
             await self._client.close_connection()
 
     async def fetch_hist_df(self) -> pd.DataFrame:
-        assert self._client is not None, "Gunakan dalam 'async with'"
-        kl = await self._client.get_klines(symbol=self.symbol, interval=self.interval, limit=self.limit)
+        client = self._client
+        assert client is not None, "Gunakan dalam 'async with'"
+        kl = await client.get_klines(symbol=self.symbol, interval=self.interval, limit=self.limit)
         df = pd.DataFrame(kl, columns=['open_time','open','high','low','close','volume','close_time','quote','trades','taker_base','taker_quote','ignore'])
         df['open_time'] = pd.to_datetime(df['open_time'], unit='ms', utc=True)
         df.set_index('open_time', inplace=True)
         return df[['open','high','low','close','volume']].astype(float)
 
     async def stream_klines(self):
-        assert self._bm is not None, "Gunakan dalam 'async with'"
-        async with self._bm.kline_socket(self.symbol, interval=self.interval) as stream:
+        bm = self._bm
+        assert bm is not None, "Gunakan dalam 'async with'"
+        async with bm.kline_socket(self.symbol, interval=self.interval) as stream:
             while True:
                 msg = await stream.recv()
                 k = msg.get('k') or {}
@@ -292,7 +303,7 @@ class SDWSRunner:
         self.streamer = BinanceKlineStreamer(symbol=symbol, interval=interval, limit=limit_bootstrap,
                                              api_key=api_key, api_secret=api_secret)
         self.df = pd.DataFrame(columns=['open','high','low','close','volume'])
-        self.callbacks: List[Callable[[Dict[str, object]], None]] = []
+        self.callbacks: List[Callable[[Dict[str, Any]], None]] = []
         self.proximity_pct = float(proximity_pct)
 
     def on_update(self, fn: Callable[[Dict[str, object]], None]) -> None:
@@ -335,10 +346,10 @@ async def _demo_cli():  # pragma: no cover
     runner = SDWSRunner(indicator=ind, symbol='BTCUSDT', interval='1m', proximity_pct=0.5,
                         api_key=api_key, api_secret=api_secret)
 
-    def print_update(ev: Dict[str, object]):
-        zones: ZonesResult = ev['zones']  # type: ignore
-        last = ev['last_bar']  # type: ignore
-        sigs = ev['signals']  # type: ignore
+    def print_update(ev: Dict[str, Any]):
+        zones = cast(ZonesResult, ev['zones'])
+        last = cast(Dict[str, Any], ev['last_bar'])
+        sigs = cast(List[Dict[str, Any]], ev.get('signals', []))
         ts = pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M:%S')
         print(f"[{ts}] close={last['close']:.2f} signals={len(sigs)}")
         for s in sigs:

@@ -24,10 +24,11 @@ Lisensi: MIT
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Any, TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
+import numpy.typing as npt
 
 try:
     # Dependensi runtime opsional (hanya diperlukan untuk streaming & contoh)
@@ -35,6 +36,13 @@ try:
 except Exception:  # pragma: no cover
     AsyncClient = None  # type: ignore
     BinanceSocketManager = None  # type: ignore
+
+if TYPE_CHECKING:
+    from binance import AsyncClient as _AsyncClient
+    from binance import BinanceSocketManager as _BinanceSocketManager
+else:
+    _AsyncClient = Any  # type: ignore
+    _BinanceSocketManager = Any  # type: ignore
 
 
 # =============================
@@ -96,7 +104,7 @@ class SupplyDemandVisibleRange:
 
     # ---- Utilitas internal ----
     @staticmethod
-    def _weighted_avg(prices: np.ndarray, weights: np.ndarray) -> float:
+    def _weighted_avg(prices: npt.NDArray[np.float_], weights: npt.NDArray[np.float_]) -> float:
         w = np.sum(weights)
         if w <= 0:
             return float(np.mean(prices)) if prices.size else np.nan
@@ -265,14 +273,16 @@ class BinanceKlineStreamer:
         self.limit = int(limit)
         self.api_key = api_key
         self.api_secret = api_secret
-        self._client: Optional[AsyncClient] = None
-        self._bm: Optional[BinanceSocketManager] = None
+        self._client: Optional[_AsyncClient] = None
+        self._bm: Optional[_BinanceSocketManager] = None
 
     async def __aenter__(self):
         if AsyncClient is None:
             raise RuntimeError("python-binance belum terpasang. pip install python-binance")
         self._client = await AsyncClient.create(self.api_key, self.api_secret)
-        self._bm = BinanceSocketManager(self._client)
+        client = self._client
+        assert client is not None
+        self._bm = BinanceSocketManager(client)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -280,8 +290,9 @@ class BinanceKlineStreamer:
             await self._client.close_connection()
 
     async def fetch_hist_df(self) -> pd.DataFrame:
-        assert self._client is not None, "Panggil dalam context async with"
-        kl = await self._client.get_klines(
+        client = self._client
+        assert client is not None, "Panggil dalam context async with"
+        kl = await client.get_klines(
             symbol=self.symbol, interval=self.interval, limit=self.limit
         )
         df = pd.DataFrame(
@@ -298,8 +309,9 @@ class BinanceKlineStreamer:
 
     async def stream_klines(self):
         """Async generator: mengirimkan kline *closed* (msg['k']['x'] == True)."""
-        assert self._bm is not None, "Panggil dalam context async with"
-        async with self._bm.kline_socket(self.symbol, interval=self.interval) as stream:
+        bm = self._bm
+        assert bm is not None, "Panggil dalam context async with"
+        async with bm.kline_socket(self.symbol, interval=self.interval) as stream:
             while True:
                 msg = await stream.recv()
                 k = msg.get('k') or {}
@@ -350,7 +362,7 @@ class SDWSRunner:
             api_secret=api_secret,
         )
         self.df = pd.DataFrame(columns=['open','high','low','close','volume'])
-        self.callbacks: List[Callable[[Dict[str, object]], None]] = []
+        self.callbacks: List[Callable[[Dict[str, Any]], None]] = []
         self.proximity_pct = float(proximity_pct)
 
     def on_update(self, fn: Callable[[Dict[str, object]], None]) -> None:
