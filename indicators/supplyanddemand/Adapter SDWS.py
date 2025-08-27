@@ -45,7 +45,7 @@ Catatan:
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
@@ -165,7 +165,10 @@ class SDWSRajaDollarAdapter:
 
             def _on_update(ev: Dict[str, Any]) -> None:
                 # Jadwalkan ke loop thread background
-                asyncio.run_coroutine_threadsafe(self._handle_update(ev), self._loop)
+                loop = self._loop
+                if loop is None:
+                    return
+                asyncio.run_coroutine_threadsafe(self._handle_update(ev), loop)
 
             self.runner.on_update(_on_update)
             try:
@@ -190,9 +193,9 @@ class SDWSRajaDollarAdapter:
 
     # --------- Format & Publish ---------
     async def _handle_update(self, ev: Dict[str, Any]) -> None:
-        zones: ZonesResult = ev["zones"]  # type: ignore
-        last_bar: Dict[str, float] = ev["last_bar"]  # type: ignore
-        signals: List[Dict[str, Any]] = ev.get("signals", [])  # type: ignore
+        zones = cast(ZonesResult, ev.get("zones"))
+        last_bar = cast(Dict[str, Any], ev.get("last_bar", {}))
+        signals = cast(List[Dict[str, Any]], ev.get("signals", []))
 
         # Kunci candle untuk dedup per-candle (gunakan visible_end)
         candle_key = str(zones.visible_end.value)  # nanosecond timestamp
@@ -214,16 +217,18 @@ class SDWSRajaDollarAdapter:
                 evt = self._format_signal_event(s, zones, last_bar)
                 await self._publish(evt)
 
-    def _format_snapshot_event(self, zones: ZonesResult, last_bar: Dict[str, float]) -> Dict[str, Any]:
+    def _format_snapshot_event(self, zones: ZonesResult, last_bar: Dict[str, Any]) -> Dict[str, Any]:
         supply = [self._zone_to_dict(z) for z in zones.supply_zones]
         demand = [self._zone_to_dict(z) for z in zones.demand_zones]
+        close_val = last_bar.get("close")
+        last_close = float(close_val) if isinstance(close_val, (int, float)) else float("nan")
         return {
             "topic": self.cfg.topic_snapshot,
             "source": self.cfg.source,
             "ts": pd.Timestamp.utcnow().isoformat(),
             "symbol": getattr(self.runner.streamer, "symbol", None),
             "interval": getattr(self.runner.streamer, "interval", None),
-            "last_close": float(last_bar.get("close", float("nan"))),
+            "last_close": last_close,
             "equilibrium": zones.equilibrium,
             "weighted_equilibrium": zones.weighted_equilibrium,
             "supply_zones": supply,
@@ -233,8 +238,12 @@ class SDWSRajaDollarAdapter:
             "summary": self._summary_text(last_bar, zones, n_sig=None),
         }
 
-    def _format_signal_event(self, s: Dict[str, Any], zones: ZonesResult, last_bar: Dict[str, float]) -> Dict[str, Any]:
+    def _format_signal_event(self, s: Dict[str, Any], zones: ZonesResult, last_bar: Dict[str, Any]) -> Dict[str, Any]:
         z: Zone = s.get("zone")  # type: ignore
+        price_val = s.get("price")
+        price_f = float(price_val) if isinstance(price_val, (int, float)) else float("nan")
+        close_val = last_bar.get("close")
+        last_close = float(close_val) if isinstance(close_val, (int, float)) else float("nan")
         data = {
             "topic": self.cfg.topic_signal,
             "source": self.cfg.source,
@@ -242,11 +251,11 @@ class SDWSRajaDollarAdapter:
             "symbol": getattr(self.runner.streamer, "symbol", None),
             "interval": getattr(self.runner.streamer, "interval", None),
             "action": s.get("type"),  # BUY/SELL
-            "price": float(s.get("price", float("nan"))),
+            "price": price_f,
             "zone": self._zone_to_dict(z) if isinstance(z, Zone) else None,
             "equilibrium": zones.equilibrium,
             "weighted_equilibrium": zones.weighted_equilibrium,
-            "last_close": float(last_bar.get("close", float("nan"))),
+            "last_close": last_close,
             # Ruang untuk confidence score/filters tambahan jika diperlukan
             "confidence": self._default_confidence(s, zones),
             "message": self._summary_text(last_bar, zones, n_sig=1, action=s.get("type")),
