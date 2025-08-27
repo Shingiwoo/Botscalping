@@ -21,14 +21,15 @@ SourceType = Literal["close", "hl2", "hlc3", "ohlc4"]
 # Helpers
 # ------------------------------------------------------------
 def _select_source_from_df(df: pd.DataFrame, src: SourceType, price_col: str = "close") -> pd.Series:
-    src = src.lower()
-    if src == "close":
+    # Hindari menimpa tipe Literal[SourceType]; gunakan variabel lokal
+    src_name = str(src).lower()
+    if src_name == "close":
         return df[price_col].astype(float)
-    if src == "hl2":
+    if src_name == "hl2":
         return ((df["high"] + df["low"]) / 2.0).astype(float)
-    if src == "hlc3":
+    if src_name == "hlc3":
         return ((df["high"] + df["low"] + df[price_col]) / 3.0).astype(float)
-    if src == "ohlc4":
+    if src_name == "ohlc4":
         return ((df["open"] + df["high"] + df["low"] + df[price_col]) / 4.0).astype(float)
     raise ValueError(f"Unsupported source type: {src}")
 
@@ -95,8 +96,10 @@ def ursi_vectorized(
     """
     if isinstance(src, pd.DataFrame):
         s = _select_source_from_df(src, source, price_col=price_col)
+    elif isinstance(src, pd.Series):
+        s = src.astype("float64")
     else:
-        s = pd.Series(src).astype(float)
+        s = pd.Series(list(src), dtype="float64")
 
     upper = s.rolling(length, min_periods=length).max()
     lower = s.rolling(length, min_periods=length).min()
@@ -394,6 +397,6 @@ if __name__ == "__main__":
     for t, row in df.tail(20).iterrows():
         ohlc = (row.open, row.high, row.low, row.close)
         snap = ursi.update(ohlc)
-        evt = ursi.generate_event(symbol="BTCUSDT", timestamp=t)
+        evt = ursi.generate_event(symbol="BTCUSDT", timestamp=pd.Timestamp(t))
         if evt and evt["reason"]:
             print(t, evt)
