@@ -79,7 +79,35 @@
     "use_breakeven": 1,
     "use_htf_filter": 0,
     "use_trailing_on_strong": 1,
-    "weak_tp_roi_pct": 0.1
+    "weak_tp_roi_pct": 0.1,
+    "sr_mtf": {
+      "enabled": true,
+      "chart_tf": "15m",
+      "use_presets": false,
+      "detection_tfs": ["1h","4h"],
+      "detection_length": 15,
+      "sr_margin": 2.0,
+      "filter_false_breakouts": true,
+      "use_prev_historical_levels": true,
+      "atr_len": 17,
+      "vol_sma_len": 17,
+      "rejection_shadow_mult": 1.618,
+      "rejection_vol_mult": 1.618,
+      "false_breakout_atr_mult": 0.5,
+      "near_zone_atr_mult": 0.8,
+      "reason_weights": {
+        "sr_breakout_bull": 0.35,
+        "sr_breakout_bear": 0.35,
+        "sr_test_r": 0.15,
+        "sr_test_s": 0.15,
+        "sr_retest_r": 0.20,
+        "sr_retest_s": 0.20,
+        "sr_reject_up": 0.25,
+        "sr_reject_down": 0.25,
+        "sr_near_support": 0.10,
+        "sr_near_resistance": 0.10
+      }
+    }
   },
   "ALGOUSDT": {
     "SLIPPAGE_PCT": 0.02,

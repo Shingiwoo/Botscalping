@@ -1,12 +1,15 @@
 import os, json, logging
-from typing import Dict, Any, Tuple, Optional, Union, Any
+from typing import Dict, Any, Tuple, Optional, Union, Any, List
 
 import numpy as np
 import pandas as pd
 from ta.trend import EMAIndicator, SMAIndicator, MACD
 from ta.momentum import RSIIndicator
+from indicators.srmtf.sr_service import SRMTFService
+from aggregators.sr_features import sr_features_from_signals, sr_reason_weights_default
 
 # --- helpers (top-level util) ---
+_SR_SERVICE: Optional[SRMTFService] = None
 Numeric = Union[float, int, np.floating, np.integer]
 ArrayLike = Union[pd.Series, np.ndarray, list, tuple]
 ScalarOrArray = Union[Numeric, ArrayLike]
@@ -314,7 +317,30 @@ def get_coin_ml_params(symbol: str, coin_config: dict) -> dict:
     }
 
 
-def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: float | None) -> Optional[str]:
+def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: float | None) -> Tuple[Optional[str], List[dict]]:
+    global _SR_SERVICE
+    sr_reasons: List[dict] = []
+    try:
+        if _SR_SERVICE is None and coin_cfg.get("sr_mtf", {}).get("enabled", True):
+            _SR_SERVICE = SRMTFService.from_coin_cfg(coin_cfg)
+            try:
+                _SR_SERVICE.bootstrap(chart_df=df, base_1m=df)
+            except Exception:
+                _SR_SERVICE = None
+        if _SR_SERVICE is not None:
+            sr_signals = _SR_SERVICE.on_bar_close(df)
+            zones = _SR_SERVICE.zones()
+            sr_cfg = coin_cfg.get("sr_mtf", {})
+            feats = sr_features_from_signals(df, sr_signals, zones, sr_cfg)
+            weights = sr_cfg.get("reason_weights", sr_reason_weights_default())
+            for k, v in feats.items():
+                w = float(weights.get(k, 0.0))
+                if w == 0.0 or v == 0.0:
+                    continue
+                sr_reasons.append({"name": k, "score": max(0.0, min(1.0, v)), "weight": w})
+    except Exception:
+        _SR_SERVICE = None
+
     params = get_coin_ml_params(symbol, coin_cfg)
     if USE_BACKTEST_ENTRY_LOGIC:
         long_base, short_base = compute_base_signals_backtest(df)
@@ -330,7 +356,7 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
     thr = params["score_threshold"]
     if params.get("enabled", True) and params.get("strict", False) and ml_up_prob is None:
         logging.getLogger(__name__).info(f"[{symbol}] ML_WARMUP: menunda hingga model siap (strict).")
-        return None
+        return None, sr_reasons
     decision = None
     if score_long >= thr and score_long > score_short:
         decision = "LONG"
@@ -339,7 +365,7 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
     logging.getLogger(__name__).info(
         f"[{symbol}] DECISION base(L={long_base},S={short_base}) up_prob={ml_up_prob} thr={thr} score(L={score_long:.2f},S={score_short:.2f}) -> {decision}"
     )
-    return decision
+    return decision, sr_reasons
 
 def htf_trend_ok(side: str, base_df: pd.DataFrame, htf: str = '1h') -> bool:
     try:

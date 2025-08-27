@@ -645,6 +645,7 @@ class CoinTrader:
         self.rehydrate_profit_min_pct = float(_to_float(self.config.get('rehydrate_profit_min_pct', 0.0005), 0.0005))
         self.signal_confirm_bars_after_restart = int(self.config.get('signal_confirm_bars_after_restart', 2))
         self.signal_flip_confirm_left = 0
+        self.last_sr_reasons: List[dict] = []
 
     def _log(self, msg: str) -> None:
         if getattr(self, 'verbose', False):
@@ -1185,7 +1186,10 @@ class CoinTrader:
             else:
                 long_base, short_base = compute_base_signals_live(df)
             self._log(f"[{self.symbol}] ML use={self.ml.use_ml} up_prob={up_prob}")
-            decision = make_decision(df, self.symbol, self.config, up_prob)
+            decision, sr_reasons = make_decision(df, self.symbol, self.config, up_prob)
+            self.last_sr_reasons = sr_reasons
+            if os.getenv("DEBUG_REASONS") == "1" and sr_reasons:
+                print(f"[{self.symbol}] reasons: {sr_reasons}")
             self._log(f"[{self.symbol}] decision={decision} (long_base={long_base}, short_base={short_base})")
             long_sig = decision == 'LONG'
             short_sig = decision == 'SHORT'
