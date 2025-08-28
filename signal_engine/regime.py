@@ -22,3 +22,39 @@ def scale_weights(regime: str, w: Dict[str, float], scale: Dict[str, Dict[str, f
         if k in out:
             out[k] = float(out[k]) * float(v)
     return out
+
+def scale_weights_nonlinear(
+    w: Dict[str, float],
+    vol_metrics: Dict[str, float],
+    cfg: Dict[str, Any],
+) -> Dict[str, float]:
+    """
+    Non-linear dynamic scaling:
+    cfg example:
+      {
+        "atr_pct": {"k": 3.0, "thr": 0.02, "effects": {"adx": -0.5, "sr_breakout": 0.5}},
+        "bb_width": {"k": 3.0, "thr": 0.02, "effects": {"width_atr": -0.7, "sd_proximity": 0.3}}
+      }
+    Each effect applies: w'[key] = w[key] * (1 + effect * tanh(k * (metric - thr)))
+    Positive effect means increase when metric > thr; negative reduces.
+    Missing keys are ignored. Returns new dict.
+    """
+    out = dict(w)
+    atr = float(vol_metrics.get("atr_pct", 0.0))
+    bbw = float(vol_metrics.get("bb_width", 0.0))
+    metrics = {"atr_pct": atr, "bb_width": bbw}
+    for m_name, m_cfg in (cfg or {}).items():
+        try:
+            if m_name not in metrics:
+                continue
+            val = float(metrics[m_name])
+            k = float(m_cfg.get("k", 3.0))
+            thr = float(m_cfg.get("thr", 0.0))
+            eff: Dict[str, float] = dict(m_cfg.get("effects", {}))
+            scale_val = float(np.tanh(k * (val - thr)))
+            for key, e in eff.items():
+                if key in out:
+                    out[key] = float(out[key]) * (1.0 + float(e) * scale_val)
+        except Exception:
+            continue
+    return out

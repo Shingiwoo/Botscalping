@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, Tuple, Optional
 from .types import AggResult, ScoreBreakdown, Side
-from .regime import compute_vol_metrics, classify_regime, scale_weights
+from .regime import compute_vol_metrics, classify_regime, scale_weights, scale_weights_nonlinear
 from .cache import FeatureCache
 from .adapters import (
     SC_API,
@@ -187,7 +187,9 @@ def aggregate(
     breakdown: ScoreBreakdown = {}
     vol = compute_vol_metrics(df, lookback=int(thresholds.get("vol_lookback", 20)))
     regime = classify_regime(vol["atr_pct"], vol["bb_width"], regime_bounds)
+    # Dynamic weights: first apply discrete regime scaling, then optional tanh-based scaling
     w = scale_weights(regime, dict(weights), thresholds.get("weight_scale", {}))
+    w = scale_weights_nonlinear(w, vol, thresholds.get("weight_scale_nl", {}))
 
     htf_ok, trend = htf_ok_with_pullback(df, side, rules=htf_rules)
     if htf_ok:
@@ -299,6 +301,34 @@ def aggregate(
     else:
         strength = "kuat"
 
+    # Confirmation consolidation/demotion
+    # Count active confirmators across categories: {SMC, SD, Volume, FVG, OB}
+    # - SMC: any of sr_breakout/sr_test/sr_reject present
+    # - SD: sd_proximity present
+    # - Volume: vol_confirm present
+    # - FVG: fvg_confirm present (positive or negative still counts as info)
+    # - OB: ob active aligns with side
+    confirms = 0
+    if any(k in breakdown for k in ("sr_breakout", "sr_test", "sr_reject")):
+        confirms += 1
+    if "sd_proximity" in breakdown:
+        confirms += 1
+    if "vol_confirm" in breakdown:
+        confirms += 1
+    if "fvg_confirm" in breakdown:
+        confirms += 1
+    ob_feat = (features or {}).get("ob", {})
+    if side == "LONG" and ob_feat.get("bullish_active"):
+        confirms += 1
+    if side == "SHORT" and ob_feat.get("bearish_active"):
+        confirms += 1
+    min_confirms = int(thresholds.get("min_confirms", 2))
+    if confirms < min_confirms:
+        if strength == "kuat":
+            strength = "cukup"
+        elif strength == "cukup":
+            strength = "lemah"
+
     ok = (score >= float(thresholds.get("score_gate", 0.5))) and (strength in ("cukup", "kuat"))
     return {
         "ok": bool(ok),
@@ -307,5 +337,5 @@ def aggregate(
         "strength": strength,
         "reasons": reasons,
         "breakdown": breakdown,
-        "context": {"trend": trend, "regime": regime, "tol_sr_pct": tol_sr},
+        "context": {"trend": trend, "regime": regime, "tol_sr_pct": tol_sr, "confirms": confirms},
     }

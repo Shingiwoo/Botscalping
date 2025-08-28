@@ -7,6 +7,8 @@ from ta.trend import EMAIndicator, SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from indicators.srmtf.sr_service import SRMTFService
 from aggregators.sr_features import sr_features_from_signals, sr_reason_weights_default
+from signal_engine.aggregator import aggregate as agg_signal, build_features_from_modules
+from signal_engine.types import Side
 
 # --- helpers (top-level util) ---
 _SR_SERVICE: Optional[SRMTFService] = None
@@ -186,7 +188,7 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
     return d
 
 
-USE_BACKTEST_ENTRY_LOGIC = bool(int(os.getenv("USE_BACKTEST_ENTRY_LOGIC", "1")))
+USE_BACKTEST_ENTRY_LOGIC = bool(int(os.getenv("USE_BACKTEST_ENTRY_LOGIC", "0")))  # deprecated: aggregator menjadi sumber kebenaran
 
 
 def compute_base_signals_backtest(df: pd.DataFrame) -> tuple[bool, bool]:
@@ -320,55 +322,88 @@ def get_coin_ml_params(symbol: str, coin_config: dict) -> dict:
     }
 
 
-def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: float | None) -> Tuple[Optional[str], List[dict]]:
-    global _SR_SERVICE
-    sr_reasons: List[dict] = []
-    try:
-        if _SR_SERVICE is None and coin_cfg.get("sr_mtf", {}).get("enabled", True):
-            _SR_SERVICE = SRMTFService.from_coin_cfg(coin_cfg)
-            try:
-                _SR_SERVICE.bootstrap(chart_df=df, base_1m=df)
-            except Exception:
-                _SR_SERVICE = None
-        if _SR_SERVICE is not None:
-            sr_signals = _SR_SERVICE.on_bar_close(df)
-            zones = _SR_SERVICE.zones()
-            sr_cfg = coin_cfg.get("sr_mtf", {})
-            feats = sr_features_from_signals(df, sr_signals, zones, sr_cfg)
-            weights = sr_cfg.get("reason_weights", sr_reason_weights_default())
-            for k, v in feats.items():
-                w = float(weights.get(k, 0.0))
-                if w == 0.0 or v == 0.0:
-                    continue
-                sr_reasons.append({"name": k, "score": max(0.0, min(1.0, v)), "weight": w})
-    except Exception:
-        _SR_SERVICE = None
+def _default_signal_params() -> Dict[str, Any]:
+    return {
+        "weights": {
+            "sc_trend_htf": 0.35,
+            "sc_no_htf": 0.15,
+            "adx": 0.15,
+            "body_atr": 0.10,
+            "width_atr": 0.10,
+            "rsi": 0.05,
+            "sr_breakout": 0.20,
+            "sr_test": 0.10,
+            "sr_reject": 0.15,
+            "sd_proximity": 0.20,
+            "vol_confirm": 0.10,
+            "fvg_confirm": 0.10,
+        },
+        "thresholds": {
+            "vol_lookback": 20,
+            "vol_z_thr": 2.0,
+            "sd_tol_pct": 1.0,
+            "strength_thresholds": {"weak": 0.25, "fair": 0.50, "strong": 0.75},
+            "score_gate": 0.50,
+            "htf_fallback_discount": {"D": 0.7, "4h": 0.5},
+            "min_confirms": 2,
+        },
+        "regime_bounds": {"atr_p1": 0.02, "atr_p2": 0.05, "bbw_q1": 0.01, "bbw_q2": 0.05},
+        "sr_penalty": {"base_pct": 0.6, "k_atr": 0.5},
+    }
 
-    params = get_coin_ml_params(symbol, coin_cfg)
-    if USE_BACKTEST_ENTRY_LOGIC:
-        long_base, short_base = compute_base_signals_backtest(df)
-    else:
-        long_base, short_base = compute_base_signals_live(df)
-    score_long = 1.0 if long_base else 0.0
-    score_short = 1.0 if short_base else 0.0
-    if params["enabled"] and ml_up_prob is not None:
-        if long_base and ml_up_prob >= params["up_prob"]:
-            score_long += params["weight"]
-        if short_base and ml_up_prob <= params["down_prob"]:
-            score_short += params["weight"]
-    thr = params["score_threshold"]
-    if params.get("enabled", True) and params.get("strict", False) and ml_up_prob is None:
-        logging.getLogger(__name__).info(f"[{symbol}] ML_WARMUP: menunda hingga model siap (strict).")
-        return None, sr_reasons
-    decision = None
-    if score_long >= thr and score_long > score_short:
+def _merge_signal_params(base: Dict[str, Any], coin_cfg: Dict[str, Any]) -> Tuple[Dict[str, float], Dict[str, Any], Dict[str, float], Dict[str, float]]:
+    # coin_config keys mapping per spesifikasi
+    scfg = coin_cfg.get("signal_engine", {})
+    weights = dict(base["weights"]) | dict(scfg.get("signal_weights", coin_cfg.get("signal_weights", {})))
+    thresholds = dict(base["thresholds"]) | dict({
+        "strength_thresholds": scfg.get("strength_thresholds", coin_cfg.get("strength_thresholds", base["thresholds"]["strength_thresholds"])),
+        "score_gate": scfg.get("score_gate", coin_cfg.get("score_gate", base["thresholds"]["score_gate"])),
+        "sd_tol_pct": scfg.get("sd_tol_pct", coin_cfg.get("sd_tol_pct", base["thresholds"].get("sd_tol_pct", 1.0))),
+        "vol_lookback": scfg.get("vol_lookback", coin_cfg.get("vol_lookback", base["thresholds"]["vol_lookback"])),
+        "vol_z_thr": scfg.get("vol_z_thr", coin_cfg.get("vol_z_thr", base["thresholds"]["vol_z_thr"])),
+        "htf_rules": scfg.get("htf_rules", coin_cfg.get("htf_rules", ("1h","4h"))),
+        "htf_fallback_discount": scfg.get("htf_fallback_discount", coin_cfg.get("htf_fallback_discount", base["thresholds"]["htf_fallback_discount"])),
+        "weight_scale": scfg.get("weight_scale", coin_cfg.get("weight_scale", {})),
+        "weight_scale_nl": scfg.get("weight_scale_nl", coin_cfg.get("weight_scale_nl", {})),
+        "min_confirms": scfg.get("min_confirms", coin_cfg.get("min_confirms", base["thresholds"]["min_confirms"]))
+    })
+    regime_bounds = dict(base["regime_bounds"]) | dict(scfg.get("regime_bounds", coin_cfg.get("regime_bounds", {})))
+    sr_penalty = dict(base["sr_penalty"]) | dict(scfg.get("sr_penalty", coin_cfg.get("sr_penalty", {})))
+    return weights, thresholds, regime_bounds, sr_penalty
+
+def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: float | None) -> Tuple[Optional[str], List[dict]]:
+    # Satu sumber kebenaran: aggregator
+    base = _default_signal_params()
+    weights, thresholds, regime_bounds, sr_penalty = _merge_signal_params(base, coin_cfg)
+
+    # Build adapter-based features once (side-agnostic where possible)
+    # Note: beberapa fitur bergantung arah (FVG same_dir), aggregator sudah menangani mapping-nya.
+    feat_long = build_features_from_modules(df, cast(Side, "LONG"))
+    feat_short = build_features_from_modules(df, cast(Side, "SHORT"))
+
+    r_long = agg_signal(df, cast(Side, "LONG"), weights, thresholds, regime_bounds, sr_penalty,
+                        htf_rules=tuple(thresholds.get("htf_rules", ("1h","4h"))),
+                        features=feat_long)
+    r_short = agg_signal(df, cast(Side, "SHORT"), weights, thresholds, regime_bounds, sr_penalty,
+                         htf_rules=tuple(thresholds.get("htf_rules", ("1h","4h"))),
+                         features=feat_short)
+
+    decision: Optional[str] = None
+    if r_long["ok"] and (not r_short["ok"] or r_long["score"] >= r_short["score"]):
         decision = "LONG"
-    elif score_short >= thr and score_short > score_long:
+    elif r_short["ok"] and (not r_long["ok"] or r_short["score"] > r_long["score"]):
         decision = "SHORT"
+
+    # Kembalikan alasan (subset) untuk audit/tuning: flatten breakdown menjadi list
+    reasons: List[dict] = []
+    pick = r_long if decision == "LONG" else r_short if decision == "SHORT" else r_long
+    for k, v in pick.get("breakdown", {}).items():
+        reasons.append({"name": str(k), "score": float(v), "weight": 1.0})
+
     logging.getLogger(__name__).info(
-        f"[{symbol}] DECISION base(L={long_base},S={short_base}) up_prob={ml_up_prob} thr={thr} score(L={score_long:.2f},S={score_short:.2f}) -> {decision}"
+        f"[{symbol}] AGG side={decision} score(L={r_long['score']:.2f},S={r_short['score']:.2f}) strength(L={r_long['strength']},S={r_short['strength']}) confirms={pick.get('context',{}).get('confirms')}"
     )
-    return decision, sr_reasons
+    return decision, reasons
 
 def htf_trend_ok(side: str, base_df: pd.DataFrame, htf: str = '1h') -> bool:
     try:
