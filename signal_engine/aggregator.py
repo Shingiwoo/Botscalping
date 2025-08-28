@@ -262,7 +262,9 @@ def aggregate(
         fb_map = thresholds.get("htf_fallback_discount", {"D": 0.7, "4h": 0.5})
         breakdown["htf_fallback_discount"] = float(fb_map.get(htf_fb, 0.7)) - 1.0
 
-    raw_score = sum(breakdown.values())
+    values_array = np.array(list(breakdown.values()), dtype=float)
+    raw_score = np.sum(values_array)
+
     if htf_fb in ("D", "4h"):
         fb_map = thresholds.get("htf_fallback_discount", {"D": 0.7, "4h": 0.5})
         raw_score *= float(fb_map.get(htf_fb, 0.7))
