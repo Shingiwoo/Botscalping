@@ -7,6 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from signal_engine.aggregator import aggregate, volume_spike_factor, sr_tolerance_pct, build_features_from_modules
 from signal_engine.regime import scale_weights
+from indicators.rsi.ultimate_rsi import URSIAdapter, URSIConfig
 
 
 def _df(n=300):
@@ -97,3 +98,20 @@ def test_entry_next_open():
             entry_idx = i
             break
     assert entry_idx == signal_idx + 1
+
+
+def test_ursi_adapter_to_aggregator():
+    df = _df()
+    adp = URSIAdapter("BTCUSDT", URSIConfig(source="ohlc4"))
+    evt = None
+    for _, r in df.iterrows():
+        evt = adp.on_price((r.open, r.high, r.low, r.close), r.timestamp)
+    assert evt is not None
+    features = {"sr": {}, "ursi": {"arsi": evt["arsi"], "signal": evt["signal"]}}
+    side = "LONG" if evt["arsi"] >= evt["signal"] else "SHORT"
+    weights = {"sc_trend_htf": 0.0, "ursi": 1.0}
+    thresholds = {"vol_lookback": 20}
+    regime_bounds = {"atr_p1": 0, "atr_p2": 1, "bbw_q1": 0, "bbw_q2": 1}
+    sr_penalty = {}
+    r = aggregate(df, side, weights, thresholds, regime_bounds, sr_penalty, features=features)
+    assert r["breakdown"].get("ursi", 0) > 0

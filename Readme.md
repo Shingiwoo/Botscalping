@@ -107,7 +107,7 @@ Contoh key penting per simbol (disederhanakan):
 
 ## Logika Strategi (ringkas)
 
-* **Base signal**: EMA(22) vs SMA(20), MACD vs signal, RSI (long: 10–45, short: 70–90).
+* **Base signal**: EMA(22) vs SMA(20), MACD vs signal, RSI (long: 10–45, short: 70–90) serta **Ultimate RSI (URSI)** untuk konfirmasi tambahan.
 * **Filter**: ATR regime (`atr_pct` dalam rentang) + rasio **body/ATR** ≤ batas.
 * **HTF filter** (opsional): EMA50 vs EMA200 pada 1h (sinkron tren besar).
 * **ML gate** (opsional): RandomForest memproduksi **up\_prob** → dihitung **odds** dan
@@ -892,6 +892,7 @@ Kalau hanya ubah .env/flag atau ingin memastikan config langsung dipakai → res
 * **Papertrade**: inject **exchange filters** ke `coin_config.json` bila kosong; journaling CSV detail; rounding qty/price sesuai LOT\_SIZE.
 * **Real trading**: **Account Guard**, **safe trailing buffer** (memperhitungkan fee+slip), time‑stop & cooldown multiplier, share **availableBalance** antar simbol per langkah.
 * **Backtester scalping**: default **HTF OFF**, **Debug mode** untuk menelusuri alasan sinyal terblokir.
+* **Ultimate RSI**: adaptor `URSIAdapter` dan agregator mendukung sinyal URSI.
 
 ---
 

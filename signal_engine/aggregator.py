@@ -16,6 +16,7 @@ from .adapters import (
     SD_API,
     SR_NEAR,
     SR_BUILD_CACHE,
+    URSI_COMPUTE_DF,
 )
 
 
@@ -112,7 +113,7 @@ def clamp01(x: float) -> float:
 
 
 def build_features_from_modules(df: pd.DataFrame, side: Side) -> Dict[str, Any]:
-    features: Dict[str, Any] = {"sr": {}, "fvg": {}, "ob": {}, "sd": {}, "htf_fallback": ""}
+    features: Dict[str, Any] = {"sr": {}, "fvg": {}, "ob": {}, "sd": {}, "ursi": {}, "htf_fallback": ""}
     try:
         if SMC_STRUCTURE:
             st = SMC_STRUCTURE(df)
@@ -156,6 +157,17 @@ def build_features_from_modules(df: pd.DataFrame, side: Side) -> Dict[str, Any]:
                     features["sd"]["demand_wavg"] = float(sd["demand_wavg"])
                 if "supply_wavg" in sd:
                     features["sd"]["supply_wavg"] = float(sd["supply_wavg"])
+        if URSI_COMPUTE_DF:
+            try:
+                u = URSI_COMPUTE_DF(df)
+                features["ursi"] = {
+                    "arsi": float(u["URSI"].iloc[-1]),
+                    "signal": float(u["URSI_signal"].iloc[-1]),
+                    "ob": float(u["URSI_ob"].iloc[-1]),
+                    "os": float(u["URSI_os"].iloc[-1]),
+                }
+            except Exception:
+                pass
     except Exception:
         pass
     return features
@@ -204,6 +216,14 @@ def aggregate(
         breakdown["width_atr"] = w.get("width_atr", 0.10)
     if sc["rsi_ok"]:
         breakdown["rsi"] = w.get("rsi", 0.05)
+    ursi_feat = (features or {}).get("ursi", {})
+    if ursi_feat.get("arsi") is not None and ursi_feat.get("signal") is not None:
+        a = float(ursi_feat["arsi"])
+        s = float(ursi_feat["signal"])
+        if side == "LONG" and a > s:
+            breakdown["ursi"] = w.get("ursi", 0.05)
+        if side == "SHORT" and a < s:
+            breakdown["ursi"] = w.get("ursi", 0.05)
 
     sr = (features or {}).get("sr", {})
     fvg = (features or {}).get("fvg", {})
