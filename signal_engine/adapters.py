@@ -50,8 +50,6 @@ SMC_ZONES = _try([
 SD_API = _try([
     ("indicators.supplyanddemand", "compute_visible_range"),
     ("indicators.supplyanddemand.core", "compute_visible_range"),
-    ("indicators.supplyandemand", "compute_visible_range"),
-    ("indicators.supplyandemand.core", "compute_visible_range"),
 ])
 
 if SD_API is None:
