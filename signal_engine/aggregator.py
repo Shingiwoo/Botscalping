@@ -103,6 +103,7 @@ def compute_sc_base(df: pd.DataFrame, side: Side, cfg: Dict[str, Any]) -> Dict[s
         else:
             out["cross"] = True
             out["adx_ok"] = out["body_atr_ok"] = out["width_atr_ok"] = True
+            out["rsi_ok"] = True
     except Exception:
         out["cross"] = False
     return out
@@ -324,10 +325,16 @@ def aggregate(
         confirms += 1
     min_confirms = int(thresholds.get("min_confirms", 2))
     if confirms < min_confirms:
+        # Hard demotion bila konfirmasi kurang: maksimal "lemah"
         if strength == "kuat":
             strength = "cukup"
-        elif strength == "cukup":
+        if strength == "cukup":
             strength = "lemah"
+        # Clamp skor agar tidak melompat kembali di consumer downstream
+        th_map = thresholds.get("strength_thresholds", {"weak": 0.25, "fair": 0.50, "strong": 0.75})
+        fair = float(th_map.get("fair", 0.50))
+        if score >= fair:
+            score = max(0.0, fair - 1e-6)
 
     ok = (score >= float(thresholds.get("score_gate", 0.5))) and (strength in ("cukup", "kuat"))
     return {
