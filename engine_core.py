@@ -163,8 +163,11 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
         d[['open','high','low','close']] = ha[['ha_open','ha_high','ha_low','ha_close']]
 
     # EMA/MA, MACD, RSI
-    d['ema_20'] = EMAIndicator(d['close'], 10).ema_indicator()
-    d['ma_22'] = SMAIndicator(d['close'], 15).sma_indicator()
+    # Sesuaikan periode dengan penamaan kolom agar tidak membingungkan downstream:
+    # - ema_20 = EMA 20
+    # - ma_22  = SMA 22
+    d['ema_20'] = EMAIndicator(d['close'], 20).ema_indicator()
+    d['ma_22'] = SMAIndicator(d['close'], 22).sma_indicator()
     macd = MACD(d['close'])
     d['macd'] = macd.macd()
     d['macd_signal'] = macd.macd_signal()
@@ -372,10 +375,12 @@ def htf_trend_ok(side: str, base_df: pd.DataFrame, htf: str = '1h') -> bool:
         tmp = base_df.set_index('timestamp')[['close']].copy()
         res = str(htf).upper()
         htf_close = tmp['close'].resample(res).last().dropna()
+        # Butuh ~200 bar untuk EMA200 yang stabil
         if len(htf_close) < 210:
             return True
-        ema50 = htf_close.ewm(span=20, adjust=False).mean().iloc[-1]
-        ema200 = htf_close.ewm(span=22, adjust=False).mean().iloc[-1]
+        # Konsisten dengan istilah: gunakan EMA 50 vs EMA 200 untuk HTF trend
+        ema50 = htf_close.ewm(span=50, adjust=False).mean().iloc[-1]
+        ema200 = htf_close.ewm(span=200, adjust=False).mean().iloc[-1]
         return (ema50 >= ema200) if side == 'LONG' else (ema50 <= ema200)
     except Exception:
         return True
