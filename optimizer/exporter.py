@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, os
+import json, os, hashlib
 from typing import Dict, Any
 
 SAFE_STRATEGY_KEY = "strategy_scalping"
@@ -79,10 +79,17 @@ def export_params_to_preset_json(
             data = {}
     if not isinstance(data, dict):
         data = {}
+    # sematkan version hash 7-char (berdasar konten params)
+    try:
+        h = hashlib.sha1(json.dumps(params, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:7]
+    except Exception:
+        h = "unknown"
+    out = dict(params)
+    out["version"] = h
     if merge:
-        data[preset_key] = dict(params)
+        data[preset_key] = out
     else:
-        data = {preset_key: dict(params)}
+        data = {preset_key: out}
     with open(preset_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     return data

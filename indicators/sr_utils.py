@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Union, Iterable
 import numpy as np
 import pandas as pd
 from ta.momentum import RSIIndicator
@@ -72,14 +72,42 @@ def compute_sr_levels(df: pd.DataFrame, lb:int=3, window:int=300, k:int=6) -> Tu
     sup_lvls = seg['low'][ll].nsmallest(k).values if ll.any() else np.array([], dtype=float)
     return np.array(res_lvls, dtype=float), np.array(sup_lvls, dtype=float)
 
-def near_level(price: float, levels: np.ndarray, pct: float) -> bool:
+def atr(df: pd.DataFrame, period: int = 14) -> float:
+    """ATR sederhana (bukan %) pada bar terakhir."""
+    tr = pd.concat([
+        (df['high'] - df['low']).abs(),
+        (df['high'] - df['close'].shift(1)).abs(),
+        (df['low'] - df['close'].shift(1)).abs(),
+    ], axis=1).max(axis=1)
+    return float(tr.rolling(period, min_periods=period).mean().iloc[-1]) if len(df) >= period else float(tr.mean() if len(tr) else 0.0)
+
+def near_level(
+    price: float,
+    levels: Union[np.ndarray, Iterable[float]],
+    tol_or_atr: float,
+    regime: str | None = None,
+    mult_low: float = 1.5,
+    mult_mid: float = 2.0,
+    mult_high: float = 2.5,
+) -> bool:
     """
-    True bila |level - price|/price <= pct%.
-    Return harus bool murni (bukan numpy.bool_).
+    Kompatibel belakang:
+    - Mode lama (persentase): near_level(price, levels, pct)
+      → true bila |level-price|/price <= pct/100
+    - Mode ATR-adaptif: near_level(price, levels, atr_value, regime, ...)
+      → true bila |level-price| <= ATR * mult(regime)
     """
-    if levels is None or len(levels) == 0:
+    if levels is None:
         return False
-    return bool(np.any(np.abs((levels - price) / price) <= pct / 100.0))
+    lv = np.array(list(levels), dtype=float)
+    if lv.size == 0:
+        return False
+    if regime is None:
+        pct = float(tol_or_atr)
+        return bool(np.any(np.abs((lv - float(price)) / float(price)) <= pct / 100.0))
+    mult = mult_low if regime == "LOW" else (mult_high if regime == "HIGH" else mult_mid)
+    safe = float(tol_or_atr) * float(mult)
+    return bool(np.any(np.abs(lv - float(price)) <= safe))
 
 def build_sr_cache(df: pd.DataFrame, lb:int=3, window:int=300, k:int=6, recalc_every:int=10) -> Dict[int, Tuple[np.ndarray, np.ndarray]]:
     """
