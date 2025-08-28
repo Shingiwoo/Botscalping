@@ -17,7 +17,6 @@ def _try(paths: list[tuple[str, str]]) -> Optional[Any]:
 
 SC_API = _try([
     ("indicators.scsignal", "compute_all"),
-    ("indicators.scsignal", "compute_all"),
     ("indicators.scsignal.core", "compute_all"),
 ])
 
