@@ -1142,11 +1142,11 @@ class CoinTrader:
 
             # HTF filter (opsional)
             if _to_bool(self.config.get('use_htf_filter', DEFAULTS['use_htf_filter']), DEFAULTS['use_htf_filter']):
-                if last['ema_22'] > last['ma_22'] and not htf_trend_ok('LONG', df, htf=htf):
+                if last['ema_20'] > last['ma_22'] and not htf_trend_ok('LONG', df, htf=htf):
                     long_htf_ok = False
                 else:
                     long_htf_ok = True
-                if last['ema_22'] < last['ma_22'] and not htf_trend_ok('SHORT', df, htf=htf):
+                if last['ema_20'] < last['ma_22'] and not htf_trend_ok('SHORT', df, htf=htf):
                     short_htf_ok = False
                 else:
                     short_htf_ok = True
