@@ -4,7 +4,7 @@ from signal_engine.aggregator import aggregate
 
 
 def test_entry_next_open_marker():
-    ts = pd.date_range("2024-01-01", periods=12, freq="15T")
+    ts = pd.date_range("2024-01-01", periods=12, freq="15min")
     price = pd.Series(np.linspace(100, 102, len(ts)))
     df = pd.DataFrame({
         "timestamp": ts,

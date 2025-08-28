@@ -4,7 +4,7 @@ from signal_engine.aggregator import aggregate
 
 
 def _df(n=220):
-    ts = pd.date_range("2024-01-01", periods=n, freq="15T")
+    ts = pd.date_range("2024-01-01", periods=n, freq="15min")
     price = pd.Series(np.linspace(100, 110, n))
     return pd.DataFrame({
         "timestamp": ts,
