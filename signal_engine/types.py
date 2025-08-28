@@ -10,6 +10,7 @@ class ScoreBreakdown(TypedDict, total=False):
     body_atr: float
     width_atr: float
     rsi: float
+    ursi: float
     sr_breakout: float
     sr_test: float
     sr_reject: float
