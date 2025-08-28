@@ -3,6 +3,13 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, Tuple
 
+__all__ = [
+    "compute_vol_metrics",
+    "classify_regime",
+    "non_linear_weight",
+    "scale_weights",
+]
+
 def compute_vol_metrics(df: pd.DataFrame, lookback: int = 20) -> Dict[str, float]:
     atr_pct = (df["high"] - df["low"]).rolling(lookback).mean() / df["close"].rolling(lookback).mean()
     bbw = (df["close"].rolling(lookback).std() * 2.0) / df["close"].rolling(lookback).mean()
@@ -22,6 +29,23 @@ def scale_weights(regime: str, w: Dict[str, float], scale: Dict[str, Dict[str, f
         if k in out:
             out[k] = float(out[k]) * float(v)
     return out
+
+def _tanh(x: float, c: float = 2.0) -> float:
+    return float(np.tanh(c * x))
+
+def non_linear_weight(base: float, metric: float, thr: float, c: float = 2.0) -> float:
+    """
+    Skala non-linear bobot indikator:
+      w' = base * (1 + tanh(c * (metric - thr)))
+    Tahan error konversi tipe; tetap kembalikan base jika input tak valid.
+    """
+    try:
+        b = float(base)
+        m = float(metric)
+        t = float(thr)
+    except Exception:
+        return float(base)
+    return b * (1.0 + _tanh(m - t, c=c))
 
 def scale_weights_nonlinear(
     w: Dict[str, float],
