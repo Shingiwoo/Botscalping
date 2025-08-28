@@ -75,3 +75,11 @@ SR_NEAR = _try([
 SR_BUILD_CACHE = _try([
     ("indicators.sr_utils", "build_sr_cache"),
 ])
+
+# ---------- Ultimate RSI ----------
+URSI_ADAPTER = _try([
+    ("indicators.rsi.ultimate_rsi", "URSIAdapter"),
+])
+URSI_COMPUTE_DF = _try([
+    ("indicators.rsi.ultimate_rsi", "compute_ursi_df"),
+])
