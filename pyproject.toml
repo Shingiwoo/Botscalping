@@ -1,0 +1,31 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Kendurkan rule import-order (I) agar tidak banyak noise lint awal
+extend-select = ["E","F","UP","B"]
+ignore = ["E501"]  # panjang baris (opsional)
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+strict_optional = true
+check_untyped_defs = true
+explicit_package_bases = true
+mypy_path = "."
+# Batasi cakupan checking: hanya modul SDWS & tests
+files = [
+  "indicators/supplyanddemand",
+  "tests",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+asyncio_mode = "auto"
+filterwarnings = []
+
+# (Opsional) jika suatu saat ingin meluaskan cakupan,
+# tinggal tambah folder baru di mypy.files dan ubah
+# ruff check path di workflow CI di atas.

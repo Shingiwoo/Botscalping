@@ -1,0 +1,9 @@
+pytest>=7.4
+pytest-asyncio>=0.23
+numpy>=1.24
+pandas>=2.0
+typing-extensions>=4.9
+ruff>=0.6.3
+mypy>=1.10
+# Tidak perlu python-binance untuk unit test saat ini;
+# impor opsional sudah dijaga dengan try/except di modul.
