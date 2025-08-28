@@ -104,7 +104,7 @@ class SupplyDemandVisibleRange:
 
     # ---- Utilitas internal ----
     @staticmethod
-    def _weighted_avg(prices: npt.NDArray[np.float_], weights: npt.NDArray[np.float_]) -> float:
+    def _weighted_avg(prices: npt.NDArray[np.float64], weights: npt.NDArray[np.float64]) -> float:
         w = np.sum(weights)
         if w <= 0:
             return float(np.mean(prices)) if prices.size else np.nan
@@ -277,13 +277,17 @@ class BinanceKlineStreamer:
         self._bm: Optional[_BinanceSocketManager] = None
 
     async def __aenter__(self):
-        if AsyncClient is None:
+        try:
+            # Import di dalam method untuk memastikan availability
+            from binance import AsyncClient, BinanceSocketManager
+            
+            self._client = await AsyncClient.create(self.api_key, self.api_secret)
+            client = self._client
+            self._bm = BinanceSocketManager(client)
+            return self
+            
+        except ImportError:
             raise RuntimeError("python-binance belum terpasang. pip install python-binance")
-        self._client = await AsyncClient.create(self.api_key, self.api_secret)
-        client = self._client
-        assert client is not None
-        self._bm = BinanceSocketManager(client)
-        return self
 
     async def __aexit__(self, exc_type, exc, tb):
         if self._client is not None:
@@ -418,19 +422,26 @@ async def _demo_cli():  # pragma: no cover
         api_secret=api_secret,
     )
 
-    def print_update(ev: Dict[str, object]):
-        zones: ZonesResult = ev['zones']  # type: ignore
-        last = ev['last_bar']  # type: ignore
-        sigs = ev['signals']  # type: ignore
-        ts = pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M:%S')
-        print(f"[{ts}] close={last['close']:.2f} signals={len(sigs)}")
-        for s in sigs:
-            z: Zone = s['zone']  # type: ignore
-            print(f"  -> {s['type']} near {z.label.upper()} wavg={z.weighted_average:.2f}")
+    from typing import Dict, Any, List
+
+    def print_update(ev: Dict[str, Any]):
+            # Berikan type hints yang lebih spesifik
+            zones: ZonesResult = ev.get('zones')  # type: ignore
+            last: Dict[str, float] = ev.get('last_bar', {})  # type: ignore
+            sigs: List[Dict[str, Any]] = ev.get('signals', [])  # type: ignore
+            
+            ts = pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M:%S')
+            close_price = last.get('close', 0.0)
+            print(f"[{ts}] close={close_price:.2f} signals={len(sigs)}")
+            
+            for s in sigs:
+                z: Zone = s.get('zone')  # type: ignore
+                if z:
+                    signal_type = s.get('type', 'unknown')
+                    print(f"  -> {signal_type} near {z.label.upper()} wavg={z.weighted_average:.2f}")
 
     runner.on_update(print_update)
     await runner.run()
-
 
 if __name__ == '__main__':  # pragma: no cover
     try:
