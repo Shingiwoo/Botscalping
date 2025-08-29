@@ -18,7 +18,7 @@ export USE_ML=1; export SCORE_THRESHOLD=1.2; export ML_RETRAIN_EVERY=5000
 """
 from __future__ import annotations
 import os, sys, time, argparse, json
-from typing import Any
+from typing import Any, Tuple, Dict, List
 import pandas as pd
 import numpy as np
 from optimizer.param_loader import load_params_from_csv, load_params_from_json
@@ -33,8 +33,7 @@ except Exception:
     import newrealtrading as nrt
 
 
-def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int, balance: float) -> tuple[dict, pd.DataFrame]:
-    df = pd.read_csv(csv_path)
+def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     if "timestamp" not in df.columns:
         if "open_time" in df.columns:
             df["timestamp"] = pd.to_datetime(df["open_time"], unit="ms", errors="coerce")
@@ -42,6 +41,10 @@ def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int,
             df["timestamp"] = pd.to_datetime(df["date"], errors="coerce")
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
+    return df
+
+def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_limit: int, balance: float) -> Tuple[Dict[str, Any], pd.DataFrame]:
+    df = _normalize_df(df.copy())
 
     # warmup supaya indikator & ML siap
     min_train = int(float(os.getenv("ML_MIN_TRAIN_BARS", "400")))
@@ -161,6 +164,10 @@ def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int,
     }
     return summary, trades_df
 
+def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int, balance: float) -> tuple[dict, pd.DataFrame]:
+    df = pd.read_csv(csv_path)
+    return simulate_dryrun(df, symbol, coin_config_path, steps_limit, balance)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -182,6 +189,11 @@ def main():
     ap.add_argument("--prefer", type=str, default="pf_then_wr", choices=["pf_then_wr","wr_then_pf"])
     ap.add_argument("--params-json", type=str, default=None, help="Path preset JSON.")
     ap.add_argument("--preset-key", type=str, default=None, help="Key preset, mis. ADAUSDT_15m")
+    # Tambahan baru: OOS split, Monte Carlo, dan debug config
+    ap.add_argument("--oos-split", type=str, default=None, help="Tanggal pemisah OOS (YYYY-MM-DD)")
+    ap.add_argument("--mc-runs", type=int, default=0, help="Jumlah Monte-Carlo block bootstrap runs (0=off)")
+    ap.add_argument("--mc-block", type=int, default=40, help="Ukuran blok bootstrap")
+    ap.add_argument("--debug-cfg", action="store_true", help="Tampilkan konfigurasi efektif yang dipakai engine")
     args = ap.parse_args()
 
     # saran env untuk speed
@@ -233,19 +245,108 @@ def main():
         if "score_threshold" in overrides:
             os.environ["SCORE_THRESHOLD"] = str(float(overrides["score_threshold"]))
 
-    summary, trades_df = run_dry(args.symbol.upper(), args.csv, cfg_path, args.steps, args.balance)
+    # Debug config efektif
+    if args.debug_cfg:
+        try:
+            with open(cfg_path, "r") as f:
+                eff = json.load(f)
+        except Exception:
+            eff = {}
+        print("\n=== DEBUG CONFIG (effective) ===")
+        try:
+            print(json.dumps(eff, indent=2))
+        except Exception:
+            print(eff)
 
+    # Helper untuk cetak summary ringkas
+    def print_summary(title: str, summary: Dict[str, Any]):
+        print(f"\n=== {title} ===")
+        keys = [
+            "symbol", "rows_total", "warmup_index", "steps_executed",
+            "trades", "win_rate_pct", "profit_factor", "avg_pnl", "elapsed_sec",
+        ]
+        for k in keys:
+            if k in summary:
+                print(f"{k}: {summary[k]}")
+
+    # MC utils
+    def block_bootstrap(seq: List[float], block: int = 40, runs: int = 100) -> List[List[float]]:
+        import random
+        n = len(seq)
+        out: List[List[float]] = []
+        if n == 0 or runs <= 0 or block <= 0:
+            return out
+        for _ in range(runs):
+            i, bag = 0, []
+            while i < n:
+                j = random.randint(0, max(0, n - block))
+                bag.extend(seq[j:j + block])
+                i += block
+            out.append(bag[:n])
+        return out
+
+    def summarize_mc(samples: List[List[float]]) -> Dict[str, Any]:
+        if not samples:
+            return {}
+        wrs, pnls = [], []
+        for s in samples:
+            if not s:
+                continue
+            wrs.append(sum(1 for x in s if x > 0) / len(s))
+            pnls.append(sum(s))
+        if not wrs:
+            return {}
+        return {
+            "wr_p5_p50_p95": list(np.percentile(wrs, [5, 50, 95])),
+            "pnl_p5_p50_p95": list(np.percentile(pnls, [5, 50, 95])),
+        }
+
+    # Load data sekali untuk reuse pada OOS/MC
+    df_full = pd.read_csv(args.csv)
+
+    # 1) Baseline (FULL)
+    full_summary, full_trades = simulate_dryrun(df_full, args.symbol.upper(), cfg_path, args.steps, args.balance)
     if overrides:
         print("\n=== PARAMETER DIPAKAI ===")
         for k, v in overrides.items():
             print(f"{k}: {v}")
+    print_summary("SUMMARY (FULL)", full_summary)
 
-    print("\n=== SUMMARY ===")
-    for k, v in summary.items():
-        print(f"{k}: {v}")
+    # 2) OOS split opsional
+    did_oos = False
+    if args.oos_split:
+        try:
+            split_dt = pd.Timestamp(args.oos_split)
+            df_full = _normalize_df(df_full)
+            df_in = df_full[df_full["timestamp"] < split_dt]
+            df_oos = df_full[df_full["timestamp"] >= split_dt]
+            if len(df_in) > 0:
+                ins_summary, _ = simulate_dryrun(df_in, args.symbol.upper(), cfg_path, args.steps, args.balance)
+                print_summary("IN-SAMPLE", ins_summary)
+            if len(df_oos) > 0:
+                did_oos = True
+                oos_summary, oos_trades = simulate_dryrun(df_oos, args.symbol.upper(), cfg_path, args.steps, args.balance)
+                print_summary("OUT-OF-SAMPLE", oos_summary)
+                if args.mc_runs > 0:
+                    seq = [float(x) for x in list(oos_trades.get("pnl", pd.Series([], dtype=float)))]
+                    bags = block_bootstrap(seq, block=args.mc_block, runs=args.mc_runs)
+                    mc = summarize_mc(bags)
+                    if mc:
+                        print(f"[MC-OOS] WR% p5/50/95 = {mc['wr_p5_p50_p95']}, PnL p5/50/95 = {mc['pnl_p5_p50_p95']}")
+        except Exception as e:
+            print(f"[WARN] OOS split gagal diproses: {e}")
 
-    if args.out and not trades_df.empty:
-        trades_df.to_csv(args.out, index=False)
+    # 3) MC atas FULL bila tidak OOS
+    if not did_oos and args.mc_runs > 0:
+        seq = [float(x) for x in list(full_trades.get("pnl", pd.Series([], dtype=float)))]
+        bags = block_bootstrap(seq, block=args.mc_block, runs=args.mc_runs)
+        mc = summarize_mc(bags)
+        if mc:
+            print(f"[MC] WR% p5/50/95 = {mc['wr_p5_p50_p95']}, PnL p5/50/95 = {mc['pnl_p5_p50_p95']}")
+
+    # Export trades baseline jika diminta
+    if args.out and isinstance(full_trades, pd.DataFrame) and not full_trades.empty:
+        full_trades.to_csv(args.out, index=False)
         print(f"\nTrades saved to: {args.out}")
 
 if __name__ == "__main__":
