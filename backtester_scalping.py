@@ -81,6 +81,18 @@ load_cfg = st.sidebar.checkbox("Muat konfigurasi dari coin_config.json", True)
 st.sidebar.header("🕒 Timeframe")
 timeframe = st.sidebar.selectbox("Resample", ["as-is","5m","15m","1h","4h","1d"], index=0)
 
+# Performa: opsi untuk mempercepat eksekusi
+with st.sidebar.expander("🚀 Performa (rekomendasi)", expanded=False):
+    limit_n_bars = st.number_input(
+        "Batasi N bar terakhir (0 = semua)", value=5000, min_value=0, step=500,
+        help="Memproses subset data terbaru agar lebih cepat."
+    )
+    signal_window_bars = st.number_input(
+        "Window sinyal (bars)", value=800, min_value=200, step=100,
+        help="Bangun fitur/sinyal dari N bar terakhir (sliding window)."
+    )
+    show_progress = st.checkbox("Tampilkan progress bar", value=True)
+
 st.sidebar.header("💰 Money Management")
 initial_capital = st.sidebar.number_input("Available Balance (USDT)", value=20.0, min_value=0.0, step=1.0)
 risk_per_trade = st.sidebar.slider("Risk per Trade (%)", 1.0, 10.0, 8.0)/100.0
@@ -325,6 +337,14 @@ if selected_file:
             if extra in df.columns: agg_ops[extra] = 'sum'
         df = df.resample(timeframe).agg(agg_ops).dropna().reset_index() # type: ignore
 
+    # Batasi jumlah bar untuk percepat (opsional)
+    try:
+        _n_limit = int(limit_n_bars)
+    except Exception:
+        _n_limit = 0
+    if _n_limit > 0 and len(df) > _n_limit:
+        df = df.tail(_n_limit).reset_index(drop=True)
+
     symbol = os.path.splitext(selected_file)[0].upper()
 
     # bar_seconds
@@ -421,8 +441,14 @@ if selected_file:
     regime_bounds = sym_cfg.get('regime_bounds', {"atr_p1": 0.006, "atr_p2": 0.03, "bbw_q1": 0.005, "bbw_q2": 0.02})
     sr_penalty = sym_cfg.get('sr_penalty', {"base_pct": 0.6, "k_atr": 0.5})
 
+    # Progress untuk agregasi sinyal
+    _p_sig = st.progress(0, text="Menyusun sinyal...") if show_progress else None
+    _last_sig = -1
     for i in range(1, len(df)):
-        df_slice = df.iloc[:i+1]
+        # Gunakan sliding window agar tidak O(n^2)
+        _win = int(signal_window_bars) if 'signal_window_bars' in locals() else 800
+        start_idx = max(0, (i + 1) - _win)
+        df_slice = df.iloc[start_idx:i+1]
         # Build features from SMC/SD/SC modules via adapters; side specifics handled inside
         feat_long = build_features_from_modules(df_slice, "LONG")
         feat_short = build_features_from_modules(df_slice, "SHORT")
@@ -445,6 +471,14 @@ if selected_file:
             df.loc[i, 'short_signal'] = (signal_ok['side'] == 'SHORT')
             df.loc[i, 'sig_strength'] = signal_ok['strength']
             df.loc[i, 'sig_score'] = signal_ok['score']
+        if _p_sig:
+            pct = int((i+1) * 100 / max(1, len(df)))
+            if pct != _last_sig:
+                _p_sig.progress(pct, text=f"Menyusun sinyal... {pct}%")
+                _last_sig = pct
+
+    if _p_sig:
+        _p_sig.empty()
 
 
     # ========= Header Ringkasan =========
@@ -508,10 +542,19 @@ if selected_file:
     startup_skip_bars = int(sym_cfg.get('startup_skip_bars', 0))
     start_index = max(1, startup_skip_bars)
 
+    # Progress untuk simulasi trade
+    _p_sim = st.progress(0, text="Simulasi trade...") if show_progress else None
+    _last_sim = -1
     for i in range(start_index, len(df)):
         row = df.iloc[i]
         price = float(row['close'])
         ts = row['timestamp'].to_pydatetime().timestamp()
+        # update progress di awal iterasi
+        if _p_sim:
+            pct = int((i+1 - start_index) * 100 / max(1, len(df) - start_index))
+            if pct != _last_sim:
+                _p_sim.progress(pct, text=f"Simulasi trade... {pct}%")
+                _last_sim = pct
 
         if cooldown_until_ts and ts < cooldown_until_ts:
             continue
@@ -707,6 +750,9 @@ if selected_file:
                 trades.append({'timestamp_entry':hold_start_ts,'timestamp_exit':row['timestamp'],'symbol':symbol,'type':position_type,'entry':entry,'exit':exit_px,'qty':qty,'fee':fee,'pnl':pnl,'roi_on_margin':roi,'reason':reason})
                 in_position = False; position_type=None; entry=sl=trailing_sl=None; qty=0.0; hold_start_ts=None
                 cooldown_until_ts = ts + float(cooldown_seconds)
+
+    if _p_sim:
+        _p_sim.empty()
 
     # ---------- Diagnostics ----------
     with st.expander("📟 Diagnostics (cek kenapa nggak entry)", expanded=False):

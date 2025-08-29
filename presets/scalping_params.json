@@ -1,0 +1,26 @@
+{
+  "ADAUSDT_15m": {
+    "ema_len": 22,
+    "sma_len": 20,
+    "rsi_period": 25,
+    "rsi_long_min": 10,
+    "rsi_long_max": 45,
+    "rsi_short_min": 70,
+    "rsi_short_max": 90,
+    "min_atr_pct": 0.003,
+    "max_atr_pct": 0.03,
+    "max_body_atr": 1.6,
+    "sl_atr_mult": 1.5,
+    "sl_pct": 0.008,
+    "trailing_trigger": 0.7,
+    "trailing_step": 0.45,
+    "be_trigger_pct": 0.006,
+    "score_threshold": 1.0,
+    "use_sr_filter": true,
+    "sr_near_pct": 0.6,
+    "use_mtf_plus": true,
+    "symbol": "ADAUSDT_15M_2025-06-01_TO_2025-08-09",
+    "tf": "15min",
+    "version": "d8e6d9d"
+  }
+}
