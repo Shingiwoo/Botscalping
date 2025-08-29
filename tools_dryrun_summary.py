@@ -18,6 +18,7 @@ export USE_ML=1; export SCORE_THRESHOLD=1.2; export ML_RETRAIN_EVERY=5000
 """
 from __future__ import annotations
 import os, sys, time, argparse, json
+from typing import Any
 import pandas as pd
 import numpy as np
 from optimizer.param_loader import load_params_from_csv, load_params_from_json
@@ -59,40 +60,62 @@ def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int,
     except Exception:
         pass
 
-    # Hook kumpulkan trades & PnL dummy
-    trades: list[dict] = []
-    trader._entry_count = 0
-    trader._exit_count = 0
+    # Hook kumpulkan trades & PnL dummy (hindari atribut baru pada trader untuk Pylance)
+    trades: list[dict[str, Any]] = []
+    entry_count = 0
+    exit_count = 0
     _orig_enter = trader._enter_position
     _orig_exit = trader._exit_position
 
-    # === FIX: terima **kwargs (mis. now_ts) dan teruskan ke fungsi asli ===
-    def _enter_wrap(side, price, atr, balance, **kwargs):
-        trader._entry_count += 1
-        _orig_enter(side, price, atr, balance, **kwargs)
+    # Gunakan *args/**kwargs supaya kompatibel dg signature asli apa pun, dan return value diteruskan
+    def _enter_wrap(*args: Any, **kwargs: Any):
+        nonlocal entry_count
+        entry_count += 1
+        return _orig_enter(*args, **kwargs)
 
-    def _exit_wrap(price, reason, **kwargs):
+    def _safe_to_datetime_from_seconds(ts: Any):
+        if ts is None:
+            return pd.Timestamp.utcnow()
+        try:
+            # int/float-like seconds
+            if isinstance(ts, (int, float, np.integer, np.floating)):
+                return pd.to_datetime(int(ts), unit="s", utc=True)
+            # string timestamp; let pandas parse
+            if isinstance(ts, str):
+                dt = pd.to_datetime(ts, utc=True, errors="coerce")
+                return dt if pd.notna(dt) else pd.Timestamp.utcnow()
+        except Exception:
+            pass
+        return pd.Timestamp.utcnow()
+
+    def _exit_wrap(*args: Any, **kwargs: Any):
+        nonlocal exit_count
         pos = trader.pos
+        # ambil price dan reason dari args/kwargs jika ada
+        price = kwargs.get("price") if "price" in kwargs else (args[0] if len(args) >= 1 else None)
+        reason = kwargs.get("reason") if "reason" in kwargs else (args[1] if len(args) >= 2 else "UNKNOWN")
         # gunakan waktu yang konsisten dgn loop (kalau ada now_ts)
-        exit_time = pd.to_datetime(kwargs.get("now_ts"), unit="s", utc=True) if ("now_ts" in kwargs and kwargs.get("now_ts") is not None) else pd.Timestamp.utcnow()
-        if pos.side and pos.entry and pos.qty:
-            pnl = (price - pos.entry) * pos.qty if pos.side == "LONG" else (pos.entry - price) * pos.qty
-            trades.append({
-                "symbol": symbol,
-                "side": pos.side,
-                "entry_price": float(pos.entry),
-                "exit_price": float(price),
-                "qty": float(pos.qty),
-                "pnl": float(pnl),
-                "reason": reason,
-                "entry_time": pos.entry_time,
-                "exit_time": exit_time,
-            })
-        trader._exit_count += 1
-        _orig_exit(price, reason, **kwargs)
+        exit_time = _safe_to_datetime_from_seconds(kwargs.get("now_ts"))
+        try:
+            if price is not None and pos.side and pos.entry and pos.qty:
+                pnl = (price - pos.entry) * pos.qty if pos.side == "LONG" else (pos.entry - price) * pos.qty
+                trades.append({
+                    "symbol": symbol,
+                    "side": pos.side,
+                    "entry_price": float(pos.entry),
+                    "exit_price": float(price),
+                    "qty": float(pos.qty),
+                    "pnl": float(pnl),
+                    "reason": reason,
+                    "entry_time": pos.entry_time,
+                    "exit_time": exit_time,
+                })
+        finally:
+            exit_count += 1
+        return _orig_exit(*args, **kwargs)
 
-    trader._enter_position = _enter_wrap
-    trader._exit_position = _exit_wrap
+    trader._enter_position = _enter_wrap  # type: ignore
+    trader._exit_position = _exit_wrap    # type: ignore
 
     # Replay loop
     t0 = time.time()
@@ -127,8 +150,8 @@ def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int,
         "rows_total": len(df),
         "warmup_index": start_i,
         "steps_executed": steps,
-        "entries": trader._entry_count,
-        "exits": trader._exit_count,
+        "entries": entry_count,
+        "exits": exit_count,
         "last_position": trader.pos.side,
         "trades": len(trades),
         "win_rate_pct": round(float(wr), 2),
