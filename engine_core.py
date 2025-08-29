@@ -400,14 +400,22 @@ def htf_trend_ok(side: str, base_df: pd.DataFrame, htf: str = '1h') -> bool:
     except Exception:
         return True
 def apply_filters(ind: pd.Series, coin_cfg: Dict[str, Any]) -> Tuple[bool, bool, Dict[str, Any]]:
-    min_atr = _to_float(coin_cfg.get('min_atr_pct', 0.0), 0.0)
-    max_atr = _to_float(coin_cfg.get('max_atr_pct', 1.0), 1.0)
-    max_body = _to_float(coin_cfg.get('max_body_atr', 999.0), 999.0)
-    atr_ok = (ind['atr_pct'] >= min_atr) and (ind['atr_pct'] <= max_atr)
+    fl = coin_cfg.get('filters', {}) or {}
+    atr_enabled = bool(fl.get('atr', False))
+    body_enabled = bool(fl.get('body', False))
 
+    # ATR bounds hanya jika atr_enabled
+    min_atr = _to_float(coin_cfg.get('min_atr_pct', 0.0), 0.0) if atr_enabled else 0.0
+    max_atr = _to_float(coin_cfg.get('max_atr_pct', 1.0), 1.0) if atr_enabled else float('inf')
+    atr_ok = True if not atr_enabled else ((ind['atr_pct'] >= min_atr) and (ind['atr_pct'] <= max_atr))
+
+    # Body/ATR hanya jika body_enabled
+    max_body_cfg = fl.get('max_body_over_atr', coin_cfg.get('max_body_atr', 999.0))
+    max_body = _to_float(max_body_cfg, 999.0)
     body_val = ind.get('body_to_atr', ind.get('body_atr'))
-    body_ok = (float(body_val) <= max_body) if body_val is not None else False
-    if not atr_ok or not body_ok:
+    body_ok = True if not body_enabled else ((float(body_val) <= max_body) if body_val is not None else False)
+
+    if (atr_enabled and not atr_ok) or (body_enabled and not body_ok):
         logging.getLogger(__name__).info(
             f"[{coin_cfg.get('symbol', '?')}] FILTER INFO atr_ok={atr_ok} body_ok={body_ok} price={ind.get('close')}"
         )

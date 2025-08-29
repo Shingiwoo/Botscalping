@@ -1129,15 +1129,18 @@ class CoinTrader:
                     return 0.0
 
             filters_cfg = (self.config.get('filters') if isinstance(self.config.get('filters'), dict) else {}) or {}
-            min_atr_threshold = _to_float(filters_cfg.get('min_atr_threshold', self.config.get('min_atr_pct', DEFAULTS['min_atr_pct'])), DEFAULTS['min_atr_pct'])
+            # Basic quality filters (ATR/body) mengikuti flag di config
+            atr_enabled = bool(filters_cfg.get('atr', False))
+            body_enabled = bool(filters_cfg.get('body', False))
+            min_atr_threshold = _to_float(self.config.get('min_atr_pct', DEFAULTS['min_atr_pct']), DEFAULTS['min_atr_pct']) if atr_enabled else 0.0
+            max_atr_allowed = _to_float(self.config.get('max_atr_pct', DEFAULTS['max_atr_pct']), DEFAULTS['max_atr_pct']) if atr_enabled else float('inf')
             max_body_over_atr = _to_float(filters_cfg.get('max_body_over_atr', self.config.get('max_body_atr', DEFAULTS['max_body_atr'])), DEFAULTS['max_body_atr'])
-
-            atr_ok = (last['atr_pct'] >= min_atr_threshold) and (
-                last['atr_pct'] <= _to_float(self.config.get('max_atr_pct', DEFAULTS['max_atr_pct']), DEFAULTS['max_atr_pct'])
-            )
-            body_val = last.get('body_to_atr', last.get('body_atr'))
-            body_ok = (as_float(body_val) <= max_body_over_atr)
-            if self.verbose and (not atr_ok or not body_ok):
+            atr_ok = True if not atr_enabled else ((last['atr_pct'] >= min_atr_threshold) and (last['atr_pct'] <= max_atr_allowed))
+            body_ok = True
+            if body_enabled:
+                body_val = last.get('body_to_atr', last.get('body_atr'))
+                body_ok = (as_float(body_val) <= max_body_over_atr)
+            if self.verbose and ((atr_enabled and not atr_ok) or (body_enabled and not body_ok)):
                 print(f"[{self.symbol}] FILTER INFO atr_ok={atr_ok} body_ok={body_ok} price={price} pos={self.pos.side or 'None'}")
 
             # Keputusan sinyal via aggregator (engine_core.make_decision)
