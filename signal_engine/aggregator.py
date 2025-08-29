@@ -323,18 +323,24 @@ def aggregate(
         confirms += 1
     if side == "SHORT" and ob_feat.get("bearish_active"):
         confirms += 1
-    min_confirms = int(thresholds.get("min_confirms", 2))
-    if confirms < min_confirms:
-        # Hard demotion bila konfirmasi kurang: maksimal "lemah"
-        if strength == "kuat":
-            strength = "cukup"
-        if strength == "cukup":
-            strength = "lemah"
-        # Clamp skor agar tidak melompat kembali di consumer downstream
-        th_map = thresholds.get("strength_thresholds", {"weak": 0.25, "fair": 0.50, "strong": 0.75})
-        fair = float(th_map.get("fair", 0.50))
-        if score >= fair:
-            score = max(0.0, fair - 1e-6)
+    # Terapkan demotion hanya jika min_confirms ditentukan eksplisit pada thresholds
+    _min_c = thresholds.get("min_confirms", None)
+    if _min_c is not None:
+        try:
+            min_confirms = int(_min_c)
+        except Exception:
+            min_confirms = None
+        if isinstance(min_confirms, int) and confirms < min_confirms:
+            # Hard demotion bila konfirmasi kurang: maksimal "lemah"
+            if strength == "kuat":
+                strength = "cukup"
+            if strength == "cukup":
+                strength = "lemah"
+            # Clamp skor agar tidak melompat kembali di consumer downstream
+            th_map = thresholds.get("strength_thresholds", {"weak": 0.25, "fair": 0.50, "strong": 0.75})
+            fair = float(th_map.get("fair", 0.50))
+            if score >= fair:
+                score = max(0.0, fair - 1e-6)
 
     ok = (score >= float(thresholds.get("score_gate", 0.5))) and (strength in ("cukup", "kuat"))
     return {

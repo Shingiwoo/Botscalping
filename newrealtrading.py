@@ -56,8 +56,8 @@ from engine_core import (
     _to_float, _to_int, _to_bool, floor_to_step, ceil_to_step, to_scalar, to_bool,
     load_coin_config, merge_config, compute_indicators as calculate_indicators,
     htf_trend_ok, r_multiple, apply_breakeven_sl, roi_frac_now, base_supports_side,
-    safe_div, as_float, compute_base_signals_backtest, compute_base_signals_live,
-    make_decision, round_to_tick, as_scalar, USE_BACKTEST_ENTRY_LOGIC,
+    safe_div, as_float,
+    make_decision, round_to_tick, as_scalar,
     base_strength, ml_strength, fuse_strength, pick_mode
 )
 
@@ -1140,22 +1140,12 @@ class CoinTrader:
             if self.verbose and (not atr_ok or not body_ok):
                 print(f"[{self.symbol}] FILTER INFO atr_ok={atr_ok} body_ok={body_ok} price={price} pos={self.pos.side or 'None'}")
 
-            # HTF filter (opsional)
-            if _to_bool(self.config.get('use_htf_filter', DEFAULTS['use_htf_filter']), DEFAULTS['use_htf_filter']):
-                if last['ema_20'] > last['ma_22'] and not htf_trend_ok('LONG', df, htf=htf):
-                    long_htf_ok = False
-                else:
-                    long_htf_ok = True
-                if last['ema_20'] < last['ma_22'] and not htf_trend_ok('SHORT', df, htf=htf):
-                    short_htf_ok = False
-                else:
-                    short_htf_ok = True
-            else:
-                long_htf_ok = short_htf_ok = True
-
-            long_base, short_base = compute_base_signals_backtest(df)
-            long_base = long_base and long_htf_ok
-            short_base = short_base and short_htf_ok
+            # Keputusan sinyal via aggregator (engine_core.make_decision)
+            self._log(f"[{self.symbol}] ML use={self.ml.use_ml} up_prob={up_prob}")
+            decision, sr_reasons = make_decision(df, self.symbol, self.config, up_prob)
+            self.last_sr_reasons = sr_reasons
+            if os.getenv("DEBUG_REASONS") == "1" and sr_reasons:
+                print(f"[{self.symbol}] reasons: {sr_reasons}")
 
             if self.rehydrated and self.pos.side:
                 lev = _to_int(self.config.get('leverage', DEFAULTS['leverage']), DEFAULTS['leverage'])
@@ -1167,7 +1157,7 @@ class CoinTrader:
                 else:
                     roi = roi_frac_now(self.pos.side, entry_safe, price_safe, qty_safe, lev)
                 if roi >= self.rehydrate_profit_min_pct and self.rehydrate_protect_profit:
-                    if base_supports_side(long_base, short_base, self.pos.side):
+                    if decision == self.pos.side:
                         self._log("REHYDRATE PROTECT: profit & signal searah → tahan posisi (skip close by-signal)")
                         self.signal_flip_confirm_left = max(self.signal_flip_confirm_left, self.signal_confirm_bars_after_restart)
                     else:
@@ -1181,16 +1171,7 @@ class CoinTrader:
                         self._update_trailing(price)
                 return 0.0
 
-            if USE_BACKTEST_ENTRY_LOGIC:
-                long_base, short_base = compute_base_signals_backtest(df)
-            else:
-                long_base, short_base = compute_base_signals_live(df)
-            self._log(f"[{self.symbol}] ML use={self.ml.use_ml} up_prob={up_prob}")
-            decision, sr_reasons = make_decision(df, self.symbol, self.config, up_prob)
-            self.last_sr_reasons = sr_reasons
-            if os.getenv("DEBUG_REASONS") == "1" and sr_reasons:
-                print(f"[{self.symbol}] reasons: {sr_reasons}")
-            self._log(f"[{self.symbol}] decision={decision} (long_base={long_base}, short_base={short_base})")
+            self._log(f"[{self.symbol}] decision={decision}")
             long_sig = decision == 'LONG'
             short_sig = decision == 'SHORT'
             # Update SL/TS saat pegang posisi

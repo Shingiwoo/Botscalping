@@ -45,6 +45,25 @@ def export_params_to_coin_config(
         for k_src, k_dst in LEGACY_MAP.items():
             if k_src in params and params[k_src] is not None:
                 sym[k_dst] = params[k_src]
+    # Tambah dukungan export konfigurasi signal_engine bila ada di params
+    se_keys = {
+        "signal_weights",
+        "strength_thresholds",
+        "regime_bounds",
+        "weight_scale",
+        "weight_scale_nl",
+        "sr_penalty",
+        "sd_tol_pct",
+        "vol_lookback",
+        "vol_z_thr",
+        "htf_rules",
+        "score_gate",
+    }
+    se_payload = {k: params[k] for k in se_keys if k in params}
+    if se_payload:
+        sym.setdefault("signal_engine", {})
+        sym["signal_engine"].update(se_payload)
+
     # tulis balik ke file
     with open(coin_config_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
