@@ -188,27 +188,7 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
     return d
 
 
-USE_BACKTEST_ENTRY_LOGIC = bool(int(os.getenv("USE_BACKTEST_ENTRY_LOGIC", "0")))  # deprecated: aggregator menjadi sumber kebenaran
-
-
-def compute_base_signals_backtest(df: pd.DataFrame) -> tuple[bool, bool]:
-    ema_now, ema_prev = df['ema_20'].iloc[-1], df['ema_20'].iloc[-2]
-    ma_now, ma_prev = df['ma_22'].iloc[-1], df['ma_22'].iloc[-2]
-    macd_now, macd_sig = df['macd'].iloc[-1], df['macd_signal'].iloc[-1]
-    rsi_now = df['rsi'].iloc[-1]
-    long_base = (ema_prev <= ma_prev) and (ema_now > ma_now) and (macd_now > macd_sig) and (40 <= rsi_now <= 70)
-    short_base = (ema_prev >= ma_prev) and (ema_now < ma_now) and (macd_now < macd_sig) and (30 <= rsi_now <= 60)
-    logging.getLogger(__name__).info(
-        f"BASE ema_20={ema_now:.6f} ma22={ma_now:.6f} macd={macd_now:.6f} sig={macd_sig:.6f} rsi={rsi_now:.2f} -> L={long_base} S={short_base}"
-    )
-    return bool(long_base), bool(short_base)
-
-
-def compute_base_signals_live(df: pd.DataFrame) -> tuple[bool, bool]:
-    last = df.iloc[-1]
-    long_base = (last.get('ema_20', 0) > last.get('ma_22', 0)) and (last.get('macd', 0) > last.get('macd_signal', 0)) and (last.get('rsi', 50) <= 45)
-    short_base = (last.get('ema_20', 0) < last.get('ma_22', 0)) and (last.get('macd', 0) < last.get('macd_signal', 0)) and (last.get('rsi', 50) >= 70)
-    return bool(long_base), bool(short_base)
+# Legacy base-signal logic dihapus. Sumber kebenaran sinyal sekarang dari aggregator.
 
 
 # === Grading kekuatan sinyal (BASE & ML) + fusi & pemilih mode ===

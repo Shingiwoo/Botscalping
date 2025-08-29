@@ -11,6 +11,7 @@ from ta.momentum import RSIIndicator
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 from engine_core import apply_breakeven_sl
+from signal_engine.aggregator import aggregate as agg_signal, build_features_from_modules
 from indicators.sr_utils import (
     compute_sr_levels,
     near_level,
@@ -194,6 +195,9 @@ if debug_mode:
     max_atr_pct = 1.0
     max_body_atr = 999.0
     cooldown_seconds = 0
+
+# Collect debug rows for diagnostics (always initialize)
+debug_rows: list = []
 
 use_next_bar_entry = st.sidebar.checkbox(
     "Eksekusi di next bar open (live-like)", value=True,
@@ -382,98 +386,65 @@ if selected_file:
                 down_prob.loc[ml_df.index] = 1.0 - prob_up
                 df['ml_signal'] = (up_prob.loc[ml_df.index] >= 0.55).astype(int)
 
-    # ---------- Signals + Filters ----------
+    # ---------- Signals via Aggregator (anti-repaint, close-only) ----------
     df['long_signal'] = False
     df['short_signal'] = False
+    df['sig_strength'] = ''
+    df['sig_score'] = 0.0
     cooldown_until_ts: Optional[float] = None
-    # ===== Live-like execution helpers (NEW) =====
+
+    # Live-like execution helpers
     def apply_slippage(price: float, side: str, slip_pct: float) -> float:
         return price*(1+slip_pct/100.0) if side.lower().startswith('buy') else price*(1-slip_pct/100.0)
 
-    # cache level S/R agar hemat komputasi
-    sr_cache = build_sr_cache(df, lb=3, window=300, k=6, recalc_every=10)
-
-    # untuk debug: log alasan block
-    debug_rows: List[Dict[str, Any]] = []
+    # Load aggregator params (from coin_config if available)
+    base_weights = {
+        "sc_trend_htf": 0.35, "sc_no_htf": 0.15,
+        "adx": 0.15, "body_atr": 0.10, "width_atr": 0.10, "rsi": 0.05,
+        "sr_breakout": 0.20, "sr_test": 0.10, "sr_reject": 0.15,
+        "sd_proximity": 0.20, "vol_confirm": 0.10,
+        "fvg_confirm": 0.10, "fvg_contra": 0.10,
+        "penalty_near_opposite_sr": 0.20,
+    }
+    weights = (sym_cfg.get('signal_engine', {}).get('signal_weights') or
+               sym_cfg.get('signal_weights') or base_weights)
+    thresholds = {
+        "vol_lookback": sym_cfg.get('vol_lookback', 20),
+        "vol_z_thr": sym_cfg.get('vol_z_thr', 2.0),
+        "sd_tol_pct": sym_cfg.get('sd_tol_pct', 1.0),
+        "strength_thresholds": sym_cfg.get('strength_thresholds', {"weak":0.25,"fair":0.50,"strong":0.75}),
+        "score_gate": sym_cfg.get('score_gate', 0.55),
+        "weight_scale": sym_cfg.get('weight_scale', {}),
+        "weight_scale_nl": sym_cfg.get('weight_scale_nl', {}),
+        "htf_rules": tuple(sym_cfg.get('htf_rules', ("1h","4h"))),
+    }
+    regime_bounds = sym_cfg.get('regime_bounds', {"atr_p1": 0.006, "atr_p2": 0.03, "bbw_q1": 0.005, "bbw_q2": 0.02})
+    sr_penalty = sym_cfg.get('sr_penalty', {"base_pct": 0.6, "k_atr": 0.5})
 
     for i in range(1, len(df)):
-        row = df.iloc[i]
-        sc_long = 0.0; sc_short = 0.0
-        # base scoring
-        if row['ema'] > row['ma'] and row['macd'] > row['macd_signal'] and (rsi_long_min <= row['rsi'] <= rsi_long_max):
-            sc_long += 1
-        if row['ema'] < row['ma'] and row['macd'] < row['macd_signal'] and (rsi_short_min <= row['rsi'] <= rsi_short_max):
-            sc_short += 1
-        if use_ml:
-            up_p   = float(up_prob.iloc[i])   if not pd.isna(up_prob.iloc[i])   else None
-            down_p = float(down_prob.iloc[i]) if not pd.isna(down_prob.iloc[i]) else None
-            if up_p is not None and up_p >= 0.58: sc_long += 1.0
-            if down_p is not None and down_p >= 0.58: sc_short += 1.0
+        df_slice = df.iloc[:i+1]
+        # Build features from SMC/SD/SC modules via adapters; side specifics handled inside
+        feat_long = build_features_from_modules(df_slice, "LONG")
+        feat_short = build_features_from_modules(df_slice, "SHORT")
 
-        long_raw = sc_long >= float(score_threshold)
-        short_raw = sc_short >= float(score_threshold)
+        r_long = agg_signal(df_slice, "LONG", weights, thresholds, regime_bounds, sr_penalty,
+                            htf_rules=tuple(thresholds.get('htf_rules', ("1h","4h"))), features=feat_long)
+        r_short = agg_signal(df_slice, "SHORT", weights, thresholds, regime_bounds, sr_penalty,
+                             htf_rules=tuple(thresholds.get('htf_rules', ("1h","4h"))), features=feat_short)
 
-        atr_pct_now = float(row['atr_pct'] or 0)
-        body_to_atr_now = float(row['body_to_atr'] or 0)
-        ts = row['timestamp'].to_pydatetime().timestamp()
+        signal_ok = None
+        if r_long["ok"] and r_short["ok"]:
+            signal_ok = max([r_long, r_short], key=lambda r: r["score"])
+        elif r_long["ok"]:
+            signal_ok = r_long
+        elif r_short["ok"]:
+            signal_ok = r_short
 
-        blocked_reasons_long = []
-        blocked_reasons_short = []
-        # Jika base tidak lolos threshold
-        if not long_raw and sc_long>0:
-            blocked_reasons_long.append('score_below_threshold')
-        if not short_raw and sc_short>0:
-            blocked_reasons_short.append('score_below_threshold')
-
-        # Filters
-        if not (min_atr_pct <= atr_pct_now <= max_atr_pct):
-            long_raw = False; short_raw = False
-            blocked_reasons_long.append('atr_out_of_range')
-            blocked_reasons_short.append('atr_out_of_range')
-        if body_to_atr_now > max_body_atr:
-            long_raw = False; short_raw = False
-            blocked_reasons_long.append('body_exceeds_atr')
-            blocked_reasons_short.append('body_exceeds_atr')
-        if cooldown_until_ts and ts < cooldown_until_ts:
-            long_raw = False; short_raw = False
-            blocked_reasons_long.append('cooldown_active')
-            blocked_reasons_short.append('cooldown_active')
-        if use_sr_filter:
-            RES, SUP = sr_cache.get(i, sr_cache.get(i-1, (np.array([]), np.array([]))))
-            px = float(row['close'])
-            if long_raw and near_level(px, RES, sr_near_pct):
-                long_raw = False; blocked_reasons_long.append('near_resistance')
-            if short_raw and near_level(px, SUP, sr_near_pct):
-                short_raw = False; blocked_reasons_short.append('near_support')
-        if use_mtf_plus:
-            if long_raw and not htf_trend_ok_multi('LONG', df.iloc[:i+1], rules=('1h','4h')):
-                long_raw = False; blocked_reasons_long.append('htf_trend_mismatch')
-            if short_raw and not htf_trend_ok_multi('SHORT', df.iloc[:i+1], rules=('1h','4h')):
-                short_raw = False; blocked_reasons_short.append('htf_trend_mismatch')
-            l_ok, s_ok = ltf_momentum_ok(df.iloc[:i+1], lookback=5, rsi_thr_long=52, rsi_thr_short=48)
-            if long_raw and not l_ok:
-                long_raw = False; blocked_reasons_long.append('ltf_momentum_weak')
-            if short_raw and not s_ok:
-                short_raw = False; blocked_reasons_short.append('ltf_momentum_weak')
-
-        # Set sinyal akhir
-        if long_raw:
-            df.loc[i,'long_signal'] = True
-        elif sc_long>0 and debug_mode:
-            debug_rows.append({
-                'timestamp': row['timestamp'], 'price': float(row['close']), 'side': 'LONG',
-                'atr_pct': atr_pct_now, 'body_to_atr': body_to_atr_now,
-                'reasons': ';'.join(blocked_reasons_long) or 'blocked'
-            })
-
-        if short_raw:
-            df.loc[i,'short_signal'] = True
-        elif sc_short>0 and debug_mode:
-            debug_rows.append({
-                'timestamp': row['timestamp'], 'price': float(row['close']), 'side': 'SHORT',
-                'atr_pct': atr_pct_now, 'body_to_atr': body_to_atr_now,
-                'reasons': ';'.join(blocked_reasons_short) or 'blocked'
-            })
+        if signal_ok:
+            df.loc[i, 'long_signal'] = (signal_ok['side'] == 'LONG')
+            df.loc[i, 'short_signal'] = (signal_ok['side'] == 'SHORT')
+            df.loc[i, 'sig_strength'] = signal_ok['strength']
+            df.loc[i, 'sig_score'] = signal_ok['score']
 
 
     # ========= Header Ringkasan =========
