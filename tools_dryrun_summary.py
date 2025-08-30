@@ -162,6 +162,26 @@ def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_
         "avg_pnl": round(float(avg_pnl), 6),
         "elapsed_sec": round(elapsed, 2),
     }
+    # Diagnostik: jika tidak ada trade sama sekali, tampilkan ringkas indikator bar terakhir
+    try:
+        if summary.get("trades", 0) == 0:
+            # Ambil index terakhir yang diproses
+            last_idx = start_i + steps - 1
+            last_idx = min(max(last_idx, 0), len(df) - 1)
+            from engine_core import ensure_base_indicators  # lazy import to avoid circulars
+            df_proc = df.iloc[: last_idx + 1].copy()
+            ind_df = nrt.calculate_indicators(df_proc)
+            ind_df = ensure_base_indicators(ind_df, trader.config)
+            last = ind_df.iloc[-1]
+            ema_len = int(trader.config.get("ema_len", 22))
+            sma_len = int(trader.config.get("sma_len", 20))
+            print(
+                f"[{symbol}] LAST IND summary: close={last.get('close')}, rsi={last.get('rsi')}, "
+                f"ema={last.get(f'ema_{ema_len}')}, sma={last.get(f'sma_{sma_len}')}, "
+                f"macd={last.get('macd')}/{last.get('macd_signal')}"
+            )
+    except Exception as e:
+        print(f"[WARN] print last IND failed: {e}")
     return summary, trades_df
 
 def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int, balance: float) -> tuple[dict, pd.DataFrame]:

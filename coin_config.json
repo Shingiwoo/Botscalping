@@ -42,7 +42,7 @@
     "min_roi_to_close_by_time": 0.0,
     "ml": {
       "down_prob_short": 0.45,
-      "score_threshold": 1.2,
+      "score_threshold": 0.5,
       "strict": false,
       "up_prob_long": 0.55
     },

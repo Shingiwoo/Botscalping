@@ -191,6 +191,31 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
 # Legacy base-signal logic dihapus. Sumber kebenaran sinyal sekarang dari aggregator.
 
 
+# -----------------------------------------------------
+# Ensure base indicators exist per coin_cfg
+# -----------------------------------------------------
+def ensure_base_indicators(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    ema_len = int(cfg.get("ema_len", 22))
+    sma_len = int(cfg.get("sma_len", 20))
+    if f"ema_{ema_len}" not in df.columns:
+        df[f"ema_{ema_len}"] = df["close"].ewm(span=ema_len, adjust=False).mean()
+    if f"sma_{sma_len}" not in df.columns:
+        df[f"sma_{sma_len}"] = df["close"].rolling(sma_len).mean()
+    if "macd" not in df.columns or "macd_signal" not in df.columns:
+        macd_fast, macd_slow, macd_sig = 12, 26, 9
+        macd = df["close"].ewm(span=macd_fast, adjust=False).mean() - df["close"].ewm(span=macd_slow, adjust=False).mean()
+        df["macd"] = macd
+        df["macd_signal"] = macd.ewm(span=macd_sig, adjust=False).mean()
+    if "rsi" not in df.columns:
+        rsi_len = int(cfg.get("rsi_period", 14))
+        delta = df["close"].diff()
+        up = delta.clip(lower=0).ewm(alpha=1/rsi_len, adjust=False).mean()
+        down = (-delta.clip(upper=0)).ewm(alpha=1/rsi_len, adjust=False).mean()
+        rs = up / down.replace(0, np.nan)
+        df["rsi"] = 100 - (100 / (1 + rs))
+    return df
+
+
 # === Grading kekuatan sinyal (BASE & ML) + fusi & pemilih mode ===
 
 def base_strength(ind: dict, side_hint: str | None) -> float:
@@ -352,37 +377,50 @@ def _merge_signal_params(base: Dict[str, Any], coin_cfg: Dict[str, Any]) -> Tupl
     return weights, thresholds, regime_bounds, sr_penalty
 
 def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: float | None) -> Tuple[Optional[str], List[dict]]:
-    # Satu sumber kebenaran: aggregator
-    base = _default_signal_params()
-    weights, thresholds, regime_bounds, sr_penalty = _merge_signal_params(base, coin_cfg)
+    # Pastikan indikator dasar tersedia sesuai parameter
+    df = ensure_base_indicators(df.copy(), coin_cfg or {})
 
-    # Build adapter-based features once (side-agnostic where possible)
-    # Note: beberapa fitur bergantung arah (FVG same_dir), aggregator sudah menangani mapping-nya.
-    feat_long = build_features_from_modules(df, cast(Side, "LONG"))
-    feat_short = build_features_from_modules(df, cast(Side, "SHORT"))
+    # Ambil parameter dari config
+    ema_len = int(coin_cfg.get("ema_len", 22))
+    sma_len = int(coin_cfg.get("sma_len", 20))
+    rsi_min_long = float(coin_cfg.get("rsi_long_min", 10))
+    rsi_max_long = float(coin_cfg.get("rsi_long_max", 55))
+    rsi_min_short = float(coin_cfg.get("rsi_short_min", 70))
+    rsi_max_short = float(coin_cfg.get("rsi_short_max", 90))
 
-    r_long = agg_signal(df, cast(Side, "LONG"), weights, thresholds, regime_bounds, sr_penalty,
-                        htf_rules=tuple(thresholds.get("htf_rules", ("1h","4h"))),
-                        features=feat_long)
-    r_short = agg_signal(df, cast(Side, "SHORT"), weights, thresholds, regime_bounds, sr_penalty,
-                         htf_rules=tuple(thresholds.get("htf_rules", ("1h","4h"))),
-                         features=feat_short)
+    ema_col, sma_col = f"ema_{ema_len}", f"sma_{sma_len}"
+    if len(df) < 2:
+        return None, []
+    ema_now, ema_prev = df[ema_col].iloc[-1], df[ema_col].iloc[-2]
+    sma_now, sma_prev = df[sma_col].iloc[-1], df[sma_col].iloc[-2]
+    macd_now, macd_sig = df["macd"].iloc[-1], df["macd_signal"].iloc[-1]
+    rsi_now = df["rsi"].iloc[-1]
+
+    long_base = (ema_prev <= sma_prev) and (ema_now > sma_now) and (macd_now > macd_sig) and (rsi_min_long <= rsi_now <= rsi_max_long)
+    short_base = (ema_prev >= sma_prev) and (ema_now < sma_now) and (macd_now < macd_sig) and (rsi_min_short <= rsi_now <= rsi_max_short)
 
     decision: Optional[str] = None
-    if r_long["ok"] and (not r_short["ok"] or r_long["score"] >= r_short["score"]):
+    if long_base and not short_base:
         decision = "LONG"
-    elif r_short["ok"] and (not r_long["ok"] or r_short["score"] > r_long["score"]):
+    elif short_base and not long_base:
         decision = "SHORT"
 
-    # Kembalikan alasan (subset) untuk audit/tuning: flatten breakdown menjadi list
-    reasons: List[dict] = []
-    pick = r_long if decision == "LONG" else r_short if decision == "SHORT" else r_long
-    for k, v in pick.get("breakdown", {}).items():
-        reasons.append({"name": str(k), "score": float(v), "weight": 1.0})
+    # ML gate: gunakan threshold dari coin_cfg['ml']['score_threshold'] bila ada
+    ml_cfg = (coin_cfg or {}).get("ml", {}) or {}
+    ml_thr = float(ml_cfg.get("score_threshold", 1.0))
+    ml_enabled = bool(ml_cfg.get("enabled", True))
+    if decision is not None and ml_enabled:
+        # Gate per arah: gunakan up_prob langsung; apply_ml_gate sudah hitung odds
+        ok = apply_ml_gate(ml_up_prob, ml_thr)
+        if not ok:
+            decision = None
 
-    logging.getLogger(__name__).info(
-        f"[{symbol}] AGG side={decision} score(L={r_long['score']:.2f},S={r_short['score']:.2f}) strength(L={r_long['strength']},S={r_short['strength']}) confirms={pick.get('context',{}).get('confirms')}"
-    )
+    reasons: List[dict] = []
+    if decision is None:
+        logging.getLogger(__name__).info(
+            f"[{symbol}] NO-ENTRY base(L={long_base},S={short_base}) macd={macd_now:.4f}/{macd_sig:.4f} "
+            f"rsi={rsi_now:.2f} ema={ema_prev:.4f}->{ema_now:.4f} sma={sma_prev:.4f}->{sma_now:.4f}"
+        )
     return decision, reasons
 
 def htf_trend_ok(side: str, base_df: pd.DataFrame, htf: str = '1h') -> bool:
@@ -400,29 +438,26 @@ def htf_trend_ok(side: str, base_df: pd.DataFrame, htf: str = '1h') -> bool:
     except Exception:
         return True
 def apply_filters(ind: pd.Series, coin_cfg: Dict[str, Any]) -> Tuple[bool, bool, Dict[str, Any]]:
-    fl = coin_cfg.get('filters', {}) or {}
-    atr_enabled = bool(fl.get('atr', False))
-    body_enabled = bool(fl.get('body', False))
+    flt = coin_cfg.get("filters", {}) or {}
+    use_atr = bool(flt.get("atr", True))
+    use_body = bool(flt.get("body", True))
 
-    # ATR bounds hanya jika atr_enabled
-    min_atr = _to_float(coin_cfg.get('min_atr_pct', 0.0), 0.0) if atr_enabled else 0.0
-    max_atr = _to_float(coin_cfg.get('max_atr_pct', 1.0), 1.0) if atr_enabled else float('inf')
-    atr_ok = True if not atr_enabled else ((ind['atr_pct'] >= min_atr) and (ind['atr_pct'] <= max_atr))
+    min_atr = _to_float(coin_cfg.get('min_atr_pct', 0.0), 0.0)
+    max_atr = _to_float(coin_cfg.get('max_atr_pct', 1.0), 1.0)
+    max_body = _to_float(coin_cfg.get('max_body_atr', 999.0), 999.0)
 
-    # Body/ATR hanya jika body_enabled
-    max_body_cfg = fl.get('max_body_over_atr', coin_cfg.get('max_body_atr', 999.0))
-    max_body = _to_float(max_body_cfg, 999.0)
-    body_val = ind.get('body_to_atr', ind.get('body_atr'))
-    body_ok = True if not body_enabled else ((float(body_val) <= max_body) if body_val is not None else False)
+    atr_val = float(ind.get('atr_pct', 0.0))
+    body_val = float(ind.get('body_to_atr', ind.get('body_atr', np.nan)))
 
-    if (atr_enabled and not atr_ok) or (body_enabled and not body_ok):
+    atr_ok = (atr_val >= min_atr) and (atr_val <= max_atr) if use_atr else True
+    body_ok = (body_val <= max_body) if (use_body and not np.isnan(body_val)) else True
+
+    if not atr_ok or not body_ok:
         logging.getLogger(__name__).info(
-            f"[{coin_cfg.get('symbol', '?')}] FILTER INFO atr_ok={atr_ok} body_ok={body_ok} price={ind.get('close')}"
+            f"[{coin_cfg.get('symbol','?')}] FILTER INFO atr_ok={atr_ok} body_ok={body_ok} "
+            f"price={ind.get('close')} pos={coin_cfg.get('tf','?')}"
         )
-    return atr_ok, body_ok, {
-        'atr_pct': float(ind['atr_pct']),
-        'body_to_atr': float(body_val) if body_val is not None else float('nan')
-    }
+    return atr_ok, body_ok, {'atr_pct': atr_val, 'body_to_atr': body_val}
 
 def decide_base(ind: pd.Series, coin_cfg: Dict[str, Any]) -> Dict[str, bool]:
     return {'L': bool(ind.get('long_base', False)), 'S': bool(ind.get('short_base', False))}

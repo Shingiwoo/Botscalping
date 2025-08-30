@@ -58,7 +58,7 @@ from engine_core import (
     htf_trend_ok, r_multiple, apply_breakeven_sl, roi_frac_now, base_supports_side,
     safe_div, as_float,
     make_decision, round_to_tick, as_scalar,
-    base_strength, ml_strength, fuse_strength, pick_mode
+    ml_strength, fuse_strength, pick_mode
 )
 
 from binance.client import Client
@@ -995,7 +995,8 @@ class CoinTrader:
                 self._log(f"SL protect {'OK' if ok else 'FAIL'} @ {sl}")
             else:
                 self._log("SKIP SL: sl=None (cek config/indikator)")
-            b_s = base_strength(indicators, self.pos.side)
+            # Base strength legacy removed; rely on ML strength for mode selection
+            b_s = 0.0
             m_s = ml_strength(up_prob, self.pos.side)
             comb = fuse_strength(b_s, m_s, w_base=0.6, w_ml=0.4)
             mode = pick_mode(comb, b_s, m_s)
