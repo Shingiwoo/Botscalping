@@ -190,6 +190,16 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
 
 # Legacy base-signal logic dihapus. Sumber kebenaran sinyal sekarang dari aggregator.
 
+# ===================== AGGREGATOR INTEGRATION =====================
+def _read_agg_from_cfg(coin_cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Ambil blok aggregator yang disuntikkan di coin_cfg['_agg'] (bila ada)."""
+    agg = (coin_cfg or {}).get("_agg")
+    if not agg:
+        return None
+    if "signal_weights" not in agg or "regime_bounds" not in agg:
+        return None
+    return cast(Dict[str, Any], agg)
+
 
 # -----------------------------------------------------
 # Ensure base indicators exist per coin_cfg
@@ -380,7 +390,48 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
     # Pastikan indikator dasar tersedia sesuai parameter
     df = ensure_base_indicators(df.copy(), coin_cfg or {})
 
-    # Ambil parameter dari config
+    # 1) Jalur AGGREGATOR (utama jika preset tersedia)
+    agg_cfg = _read_agg_from_cfg(coin_cfg)
+    if agg_cfg is not None:
+        try:
+            w = dict(agg_cfg.get("signal_weights", {}))
+            th = dict(agg_cfg.get("strength_thresholds", {}))
+            thresholds = {
+                "strength_thresholds": th or {"weak": 0.25, "fair": 0.50, "strong": 0.75},
+                "weight_scale": agg_cfg.get("weight_scale", {}),
+                "vol_lookback": agg_cfg.get("vol_lookback", 20),
+                "vol_z_thr": agg_cfg.get("vol_z_thr", 2.0),
+                "sd_tol_pct": agg_cfg.get("sd_tol_pct", 1.0),
+                "score_gate": agg_cfg.get("score_gate", 0.5),
+                # allow optional knobs
+                "htf_fallback_discount": agg_cfg.get("htf_fallback_discount", {"D": 0.7, "4h": 0.5}),
+                "weight_scale_nl": agg_cfg.get("weight_scale_nl", {}),
+                "min_confirms": agg_cfg.get("min_confirms", None),
+            }
+            regime_bounds = dict(agg_cfg.get("regime_bounds", {"atr_p1": 0.01, "atr_p2": 0.05, "bbw_q1": 0.01, "bbw_q2": 0.05}))
+            sr_penalty = dict(agg_cfg.get("sr_penalty", {"base_pct": 0.6, "k_atr": 0.5}))
+            htf_rules = tuple(agg_cfg.get("htf_rules", ("1h", "4h")))
+
+            f_long = build_features_from_modules(df, "LONG")
+            f_short = build_features_from_modules(df, "SHORT")
+            rL = agg_signal(df, cast(Side, "LONG"), w, thresholds, regime_bounds, sr_penalty, htf_rules=htf_rules, features=f_long)
+            rS = agg_signal(df, cast(Side, "SHORT"), w, thresholds, regime_bounds, sr_penalty, htf_rules=htf_rules, features=f_short)
+            candidates = [r for r in (rL, rS) if r.get("ok")]
+            if candidates:
+                best = max(candidates, key=lambda r: r.get("score", 0.0))
+                side = cast(Optional[str], best.get("side"))
+                logging.getLogger(__name__).info(
+                    f"[{symbol}] AGG OK side={side} score={best['score']:.3f} strength={best['strength']} reasons={best.get('reasons')}"
+                )
+                return side, [{"source": "aggregator", "score": float(best.get("score", 0.0)), "strength": best.get("strength")}]
+            else:
+                logging.getLogger(__name__).info(
+                    f"[{symbol}] AGG NO-ENTRY rL={rL['score']:.3f}/{rL['strength']} rS={rS['score']:.3f}/{rS['strength']}"
+                )
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"[{symbol}] aggregator path error: {e}. Fallback to base rule.")
+
+    # 2) Fallback BASE-RULE (sederhana)
     ema_len = int(coin_cfg.get("ema_len", 22))
     sma_len = int(coin_cfg.get("sma_len", 20))
     rsi_min_long = float(coin_cfg.get("rsi_long_min", 10))
@@ -410,7 +461,6 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
     ml_thr = float(ml_cfg.get("score_threshold", 1.0))
     ml_enabled = bool(ml_cfg.get("enabled", True))
     if decision is not None and ml_enabled:
-        # Gate per arah: gunakan up_prob langsung; apply_ml_gate sudah hitung odds
         ok = apply_ml_gate(ml_up_prob, ml_thr)
         if not ok:
             decision = None

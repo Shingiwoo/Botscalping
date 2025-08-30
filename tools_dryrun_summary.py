@@ -257,6 +257,23 @@ def main():
                 sym_cfg.setdefault("ml", {})["score_threshold"] = float(v)
             else:
                 sym_cfg[k] = v
+        # Inject aggregator preset (if present in params_json under preset_key)
+        try:
+            if args.params_json and args.preset_key:
+                with open(args.params_json, "r") as f:
+                    preset_root = json.load(f)
+                preset_root = preset_root.get(args.preset_key, preset_root)
+                agg_keys = {
+                    "signal_weights","strength_thresholds","regime_bounds","weight_scale",
+                    "sr_penalty","sd_tol_pct","vol_lookback","vol_z_thr","score_gate",
+                    "htf_rules","htf_fallback_discount","weight_scale_nl","min_confirms"
+                }
+                agg_block = {k: preset_root[k] for k in agg_keys if k in preset_root}
+                if agg_block:
+                    sym_cfg["_agg"] = agg_block
+                    print(f"[{args.symbol.upper()}] Aggregator preset injected: keys={list(agg_block.keys())}")
+        except Exception as e:
+            print(f"[{args.symbol.upper()}] WARN cannot inject aggregator preset: {e}")
         cfg[args.symbol.upper()] = sym_cfg
         tmp_cfg_path = f"_tmp_{args.symbol.upper()}_cfg.json"
         with open(tmp_cfg_path, "w") as f:
