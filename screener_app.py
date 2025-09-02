@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+import os, time, json
+from typing import List, Optional
+import pandas as pd
+import streamlit as st
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from screener import run_screener  # reuse core logic
+
+DEFAULT_SYMBOLS = "ADAUSDT,DOGEUSDT,XRPUSDT,SOLUSDT,BNBUSDT,ETHUSDT,BTCUSDT,APTUSDT,OPUSDT,SEIUSDT,ARBUSDT,SUIUSDT,TONUSDT,LTCUSDT,LINKUSDT,ATOMUSDT"
+
+st.set_page_config(page_title="Crypto Screener (Scalping & Spot/Long)", layout="wide")
+st.title("📊 Crypto Screener — Scalping & Spot/Long-only")
+
+with st.sidebar:
+    st.header("⚙️ Pengaturan")
+    symbols = st.text_area("Symbols (comma-separated)", value=DEFAULT_SYMBOLS, height=120)
+    colA, colB = st.columns(2)
+    mode = colA.selectbox("Mode", ["scalping","spot_long"], index=0)
+    market = colB.selectbox("Market", ["auto","spot","futures"], index=0)
+    interval = st.selectbox("Interval", ["5m","15m","30m","1h"], index=1)
+    limit = st.slider("Bar (history)", min_value=260, max_value=1500, value=720, step=20)
+    params_json = st.text_input("Preset JSON", value="presets/scalping_params.json")
+    preset_key = st.text_input("Preset Key", value="ADAUSDT_15m")
+    auto_refresh = st.checkbox("Auto-refresh tiap 30 detik", value=False)
+    run_btn = st.button("▶️ Jalankan Screener", type="primary")
+
+if auto_refresh:
+    st.experimental_set_query_params(refresh=int(time.time()))
+    st.experimental_rerun()
+
+if run_btn:
+    syms: List[str] = [x.strip().upper() for x in symbols.split(",") if x.strip()]
+    sel_market = None if market=="auto" else market
+    with st.spinner("Mengambil data & menghitung skor..."):
+        df = run_screener(
+            symbols=syms,
+            mode=mode,
+            interval=interval,
+            market=sel_market,
+            limit=int(limit),
+            params_json=params_json,
+            preset_key=preset_key,
+        )
+    st.success(f"Selesai. {len(df)} simbol.")
+
+    if df.empty:
+        st.info("Tidak ada data.")
+        st.stop()
+
+    # Ringkasan
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("ENTRY", int((df["status"]=="ENTRY").sum()))
+    c2.metric("WATCHLIST", int((df["status"]=="WATCHLIST").sum()))
+    c3.metric("AVOID", int((df["status"]=="AVOID").sum()))
+    c4.metric("Avg Score", f'{df["score"].fillna(0).mean():.3f}')
+
+    # Tabs
+    t_all, t_long, t_short = st.tabs(["🧾 Semua", "🟦 LONG picks", "🟪 SHORT picks (scalping)"])
+
+    def _style(dfv: pd.DataFrame) -> pd.DataFrame:
+        dfv = dfv.copy()
+        return dfv.style \
+            .apply(lambda s: ["background-color:#132a13;color:#9cffad" if v=="ENTRY" else
+                              "background-color:#2b2b00;color:#ffe36e" if v=="WATCHLIST" else
+                              "color:#888" for v in s], subset=["status"]) \
+            .format({"score":"{:.3f}"})
+
+    with t_all:
+        st.dataframe(_style(df), use_container_width=True, height=480)
+        st.download_button("💾 Download CSV", df.to_csv(index=False).encode("utf-8"), file_name=f"screener_{mode}.csv", mime="text/csv")
+
+    with t_long:
+        df_long = df[(df["side"]=="LONG") & (df["status"]!="NO DATA")]
+        st.dataframe(_style(df_long), use_container_width=True, height=480)
+
+    with t_short:
+        if mode!="scalping":
+            st.info("SHORT hanya tersedia di mode SCALPING.")
+        else:
+            df_short = df[(df["side"]=="SHORT") & (df["status"]!="NO DATA")]
+            st.dataframe(_style(df_short), use_container_width=True, height=480)
+

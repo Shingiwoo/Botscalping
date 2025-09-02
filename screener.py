@@ -13,15 +13,36 @@ Integrasi skor via aggregator.aggregate (modular).
 """
 from __future__ import annotations
 import os, sys, json, argparse, time
-from typing import Dict, Any, List, Tuple, Optional, cast
-from signal_engine.types import Side, AggResult  # typing support
+from typing import Dict, Any, List, Tuple, Optional, cast, TYPE_CHECKING
+from typing import Literal, TypedDict
+
+# --- typing support (stable for Pylance) ---
+if TYPE_CHECKING:
+    from signal_engine.types import Side as SideType, AggResult as AggResultType
+else:
+    try:
+        from signal_engine.types import Side as SideType, AggResult as AggResultType  # type: ignore
+    except Exception:
+        SideType = Literal["LONG", "SHORT"]
+        class AggResultType(TypedDict, total=False):
+            ok: bool
+            side: Optional[SideType]
+            score: float
+            strength: Literal["netral", "lemah", "cukup", "kuat"]
+            reasons: List[str]
+            breakdown: Dict[str, float]
+            context: Dict[str, Any]
 import pandas as pd
 import numpy as np
 
 # pastikan modul lokal bisa diimport
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from signal_engine.aggregator import aggregate, build_features_from_modules  # type: ignore
+# --- aggregator fallback (prefer package, else module lokal) ---
+try:
+    from signal_engine.aggregator import aggregate, build_features_from_modules  # type: ignore
+except Exception:
+    from aggregator import aggregate, build_features_from_modules  # type: ignore
 
 # === DataFetcher (Binance) ===
 def _df_from_klines(raw: list) -> pd.DataFrame:
@@ -71,12 +92,17 @@ def fetch_klines_binance(symbol: str, interval: str = "15m", limit: int = 720, m
         return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
 
 # === Preset / Parameter Aggregator ===
-def load_scalping_preset(params_json: str = "scalping_params.json",
+def load_scalping_preset(params_json: str = "presets/scalping_params.json",
                          preset_key: str = "ADAUSDT_15m") -> Dict[str, Any]:
     """
     Ambil blok parameter agregator dari scalping_params.json (fleksibel).
     Wajib ada minimal: signal_weights, regime_bounds, strength_thresholds, sr_penalty.
     """
+    # fallback path bila file default tidak ada
+    if not os.path.exists(params_json):
+        alt = "scalping_params.json"
+        if os.path.exists(alt):
+            params_json = alt
     try:
         with open(params_json, "r") as f:
             root = json.load(f)
@@ -117,7 +143,7 @@ def load_scalping_preset(params_json: str = "scalping_params.json",
         }
 
 # === Core Scoring ===
-def score_side(df_15m: pd.DataFrame, side: Side, agg_cfg: Dict[str, Any]) -> AggResult:
+def score_side(df_15m: pd.DataFrame, side: SideType, agg_cfg: Dict[str, Any]) -> AggResultType:
     """
     Hitung skor untuk 1 sisi (LONG/SHORT) pada 15m.
     """
@@ -133,7 +159,7 @@ def score_side(df_15m: pd.DataFrame, side: Side, agg_cfg: Dict[str, Any]) -> Agg
             "context": {},
         }
     features = build_features_from_modules(df_15m, side)  # aman walau modul SMC tidak ada
-    res = aggregate(
+    res = cast(AggResultType, aggregate(
         df_15m,
         side=side,
         weights=dict(agg_cfg["signal_weights"]),
@@ -142,7 +168,7 @@ def score_side(df_15m: pd.DataFrame, side: Side, agg_cfg: Dict[str, Any]) -> Agg
         sr_penalty_cfg=dict(agg_cfg["sr_penalty"]),
         htf_rules=tuple(agg_cfg.get("htf_rules", ("1h","4h"))),
         features=features,
-    )
+    ))
     return res
 
 def screen_symbol(symbol: str,
@@ -172,8 +198,8 @@ def screen_symbol(symbol: str,
         }
     out: Dict[str, Any] = {"symbol": symbol, "market": market, "mode": mode}
     if mode == "scalping":
-        long_r = score_side(df, "LONG", agg_cfg)
-        short_r = score_side(df, "SHORT", agg_cfg)
+        long_r = score_side(df, cast(SideType, "LONG"), agg_cfg)
+        short_r = score_side(df, cast(SideType, "SHORT"), agg_cfg)
         pick = max([("LONG", long_r), ("SHORT", short_r)], key=lambda x: x[1].get("score", 0.0))
         side, res = pick
         status = "ENTRY" if res.get("ok") else ("WATCHLIST" if res.get("score",0.0) >= 0.45 else "AVOID")
@@ -190,7 +216,7 @@ def screen_symbol(symbol: str,
         return out
     else:
         # LONG-only screening (Spot atau Futures LONG-only)
-        long_r = score_side(df, "LONG", agg_cfg)
+        long_r = score_side(df, cast(SideType, "LONG"), agg_cfg)
         status = "ENTRY" if long_r.get("ok") else ("WATCHLIST" if long_r.get("score",0.0) >= 0.45 else "AVOID")
         out.update({
             "side": "LONG",
@@ -209,7 +235,7 @@ def run_screener(symbols: List[str],
                  interval: str = "15m",
                  market: Optional[str] = None,
                  limit: int = 720,
-                 params_json: str = "scalping_params.json",
+                 params_json: str = "presets/scalping_params.json",
                  preset_key: str = "ADAUSDT_15m",
                  out_csv: Optional[str] = None) -> pd.DataFrame:
     # default market per mode
@@ -236,6 +262,38 @@ def run_screener(symbols: List[str],
     print(f"[INFO] Done in {time.time()-t0:.2f}s")
     return df
 
+def print_rich_table(df: pd.DataFrame) -> None:
+    try:
+        from rich.console import Console
+        from rich.table import Table
+        from rich import box
+    except Exception:
+        print(df.to_string(index=False))
+        return
+    c = Console()
+    t = Table(title="Screener Ranking", box=box.SIMPLE_HEAVY)
+    for col in ["symbol","market","mode","side","status","score","strength","htf","regime","confirms","reasons"]:
+        t.add_column(col.upper(), justify="left" if col != "score" else "right")
+    def _color_status(s: str) -> str:
+        return {"ENTRY": "[bold green]ENTRY[/]", "WATCHLIST": "[yellow]WATCHLIST[/]", "AVOID": "[dim]AVOID[/]"}.get(s, s or "-")
+    def _color_side(s: str) -> str:
+        return {"LONG": "[bold cyan]LONG[/]", "SHORT": "[bold magenta]SHORT[/]"}.get(s, s or "-")
+    for _, r in df.iterrows():
+        t.add_row(
+            str(r.get("symbol", "-")),
+            str(r.get("market", "-")),
+            str(r.get("mode", "-")),
+            _color_side(str(r.get("side", "-"))),
+            _color_status(str(r.get("status", "-"))),
+            f"{float(r.get('score', 0.0)):.3f}",
+            str(r.get("strength", "-")),
+            str(r.get("htf", "-")),
+            str(r.get("regime", "-")),
+            str(r.get("confirms", "-")),
+            str(r.get("reasons", ""))[:120],
+        )
+    c.print(t)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbols", required=True, help="Comma-separated, e.g. ADAUSDT,DOGEUSDT,XRPUSDT")
@@ -243,12 +301,13 @@ def main():
     ap.add_argument("--interval", default="15m")
     ap.add_argument("--market", choices=["spot","futures"], default=None, help="Override default market by mode")
     ap.add_argument("--limit", type=int, default=720, help="jumlah bar (>= 260 disarankan)")
-    ap.add_argument("--params-json", default="presets/scalping_params.json")
+    ap.add_argument("--params-json", default="presets/scalping_params.json", help="Path preset; fallback ke scalping_params.json bila tidak ada")
     ap.add_argument("--preset-key", default="ADAUSDT_15m")
     ap.add_argument("--out", default=None, help="CSV output (opsional)")
+    ap.add_argument("--rich", action="store_true", help="Tampilkan tabel berwarna di terminal")
     args = ap.parse_args()
     syms = [x for x in args.symbols.split(",") if x.strip()]
-    run_screener(
+    df = run_screener(
         symbols=syms,
         mode=args.mode,
         interval=args.interval,
@@ -258,6 +317,8 @@ def main():
         preset_key=args.preset_key,
         out_csv=args.out,
     )
+    if args.rich:
+        print_rich_table(df)
 
 if __name__ == "__main__":
     main()

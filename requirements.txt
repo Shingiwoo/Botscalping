@@ -10,3 +10,4 @@ python-binance
 python-dotenv
 ujson
 filelock
+rich
