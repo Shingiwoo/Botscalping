@@ -6,13 +6,13 @@
     "use_trailing_when_strong": true
   },
   "ADAUSDT": {
-    "SLIPPAGE_PCT": 0.02,
+    "SLIPPAGE_PCT": 0.003,
     "adopt_manual_positions": 1,
     "adx_period": 14,
     "adx_strong_thresh": 22.0,
     "adx_thresh": 18.0,
     "be_min_gap_pct": 0.001,
-    "be_trigger_pct": 0.004,
+    "be_trigger_pct": 0.006,
     "be_trigger_r": 0.5,
     "cooldown_mul_early_stop": 1.2,
     "cooldown_mul_hard_sl": 2.5,
@@ -42,8 +42,8 @@
     "min_roi_to_close_by_time": 0.0,
     "ml": {
       "down_prob_short": 0.45,
-      "score_threshold": 0.5,
-      "strict": false,
+      "score_threshold": 0.8,
+      "strict": true,
       "up_prob_long": 0.55
     },
     "quantityPrecision": 0,
@@ -77,7 +77,7 @@
     "trailing_trigger": 1.0,
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
-    "use_htf_filter": 0,
+    "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
     "weak_tp_roi_pct": 0.1,
     "sr_mtf": {
@@ -110,12 +110,12 @@
     }
   },
   "ALGOUSDT": {
-    "SLIPPAGE_PCT": 0.02,
+    "SLIPPAGE_PCT": 0.003,
     "adx_period": 14,
     "adx_strong_thresh": 22.0,
     "adx_thresh": 18.0,
     "be_min_gap_pct": 0.0001,
-    "be_trigger_pct": 0.004,
+    "be_trigger_pct": 0.006,
     "be_trigger_r": 0.0,
     "cooldown_mul_early_stop": 1.2,
     "cooldown_mul_hard_sl": 2.5,
@@ -172,16 +172,16 @@
     "trailing_trigger": 1.0,
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
-    "use_htf_filter": 0
+    "use_htf_filter": 1
   },
   "DOGEUSDT": {
-    "SLIPPAGE_PCT": 0.02,
+    "SLIPPAGE_PCT": 0.003,
     "adopt_manual_positions": 1,
     "adx_period": 14,
     "adx_strong_thresh": 22.0,
     "adx_thresh": 18.0,
     "be_min_gap_pct": 0.001,
-    "be_trigger_pct": 0.004,
+    "be_trigger_pct": 0.006,
     "be_trigger_r": 0.5,
     "cooldown_mul_early_stop": 1.2,
     "cooldown_mul_hard_sl": 2.5,
@@ -212,7 +212,7 @@
     "ml": {
       "down_prob_short": 0.45,
       "score_threshold": 1.2,
-      "strict": false,
+      "strict": true,
       "up_prob_long": 0.55
     },
     "quantityPrecision": 0,
@@ -246,18 +246,18 @@
     "trailing_trigger": 1.0,
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
-    "use_htf_filter": 0,
+    "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
     "weak_tp_roi_pct": 0.1
   },
   "DOTUSDT": {
-    "SLIPPAGE_PCT": 0.02,
+    "SLIPPAGE_PCT": 0.003,
     "adopt_manual_positions": 1,
     "adx_period": 14,
     "adx_strong_thresh": 22.0,
     "adx_thresh": 18.0,
     "be_min_gap_pct": 0.001,
-    "be_trigger_pct": 0.004,
+    "be_trigger_pct": 0.006,
     "be_trigger_r": 0.5,
     "cooldown_mul_early_stop": 1.2,
     "cooldown_mul_hard_sl": 2.5,
@@ -288,7 +288,7 @@
     "ml": {
       "down_prob_short": 0.45,
       "score_threshold": 1.2,
-      "strict": false,
+      "strict": true,
       "up_prob_long": 0.55
     },
     "quantityPrecision": 0,
@@ -322,7 +322,7 @@
     "trailing_trigger": 1.0,
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
-    "use_htf_filter": 0,
+    "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
     "weak_tp_roi_pct": 0.1
   },
@@ -352,12 +352,12 @@
     }
   },
   "TURBOUSDT": {
-    "SLIPPAGE_PCT": 0.02,
+    "SLIPPAGE_PCT": 0.003,
     "adx_period": 14,
     "adx_strong_thresh": 22.0,
     "adx_thresh": 18.0,
     "be_min_gap_pct": 0.0001,
-    "be_trigger_pct": 0.004,
+    "be_trigger_pct": 0.006,
     "be_trigger_r": 0.0,
     "cooldown_mul_early_stop": 1.2,
     "cooldown_mul_hard_sl": 2.5,
@@ -414,15 +414,15 @@
     "trailing_trigger": 1.0,
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
-    "use_htf_filter": 0
+    "use_htf_filter": 1
   },
   "XRPUSDT": {
-    "SLIPPAGE_PCT": 0.02,
+    "SLIPPAGE_PCT": 0.003,
     "adx_period": 14,
     "adx_strong_thresh": 22.0,
     "adx_thresh": 18.0,
     "be_min_gap_pct": 0.0001,
-    "be_trigger_pct": 0.004,
+    "be_trigger_pct": 0.006,
     "be_trigger_r": 0.0,
     "cooldown_mul_early_stop": 1.2,
     "cooldown_mul_hard_sl": 2.5,
@@ -444,7 +444,7 @@
     "min_roi_to_close_by_time": 0.0,
     "ml": {
       "score_threshold": 0.9,
-      "strict": false
+      "strict": true
     },
     "quantityPrecision": 1,
     "risk_per_trade": 0.08,
@@ -477,7 +477,7 @@
     "trailing_trigger": 1.0,
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
-    "use_htf_filter": 0,
+    "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
     "weak_tp_roi_pct": 0.1
   }
