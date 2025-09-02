@@ -13,15 +13,15 @@ Integrasi skor via aggregator.aggregate (modular).
 """
 from __future__ import annotations
 import os, sys, json, argparse, time
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, cast
+from signal_engine.types import Side, AggResult  # typing support
 import pandas as pd
 import numpy as np
 
 # pastikan modul lokal bisa diimport
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from aggregator import aggregate, build_features_from_modules  # type: ignore
-from regime import compute_vol_metrics  # type: ignore
+from signal_engine.aggregator import aggregate, build_features_from_modules  # type: ignore
 
 # === DataFetcher (Binance) ===
 def _df_from_klines(raw: list) -> pd.DataFrame:
@@ -43,15 +43,29 @@ def fetch_klines_binance(symbol: str, interval: str = "15m", limit: int = 720, m
     market: 'spot' | 'futures'
     """
     try:
+        # Try futures endpoint first if requested, with graceful fallback to python-binance futures,
+        # then to spot only if both futures clients are unavailable.
         if market == "futures":
-            from binance.um_futures import UMFutures  # type: ignore
-            cli = UMFutures()  # public endpoint cukup
-            raw = cli.klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
-        else:
-            from binance.client import Client  # type: ignore
-            cli = Client()  # public endpoint cukup
-            raw = cli.get_klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
-        return _df_from_klines(raw)
+            # 1) binance-connector (UMFutures)
+            try:
+                from binance.um_futures import UMFutures  # type: ignore
+                cli_um = UMFutures()  # public endpoint cukup
+                raw = cli_um.klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
+                return _df_from_klines(cast(List[Any], raw))
+            except Exception:
+                # 2) python-binance futures endpoint
+                try:
+                    from binance.client import Client  # type: ignore
+                    cli = Client()
+                    raw = cli.futures_klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
+                    return _df_from_klines(cast(List[Any], raw))
+                except Exception as e2:
+                    print(f"[WARN] futures API unavailable for {symbol}, fallback to spot: {e2}")
+        # Spot fetch (default or fallback)
+        from binance.client import Client  # type: ignore
+        cli = Client()  # public endpoint cukup
+        raw = cli.get_klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
+        return _df_from_klines(cast(List[Any], raw))
     except Exception as e:
         print(f"[WARN] fetch_klines_binance gagal {symbol} {interval} {market}: {e}")
         return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
@@ -103,12 +117,21 @@ def load_scalping_preset(params_json: str = "scalping_params.json",
         }
 
 # === Core Scoring ===
-def score_side(df_15m: pd.DataFrame, side: str, agg_cfg: Dict[str, Any]) -> Dict[str, Any]:
+def score_side(df_15m: pd.DataFrame, side: Side, agg_cfg: Dict[str, Any]) -> AggResult:
     """
     Hitung skor untuk 1 sisi (LONG/SHORT) pada 15m.
     """
     if df_15m.empty or len(df_15m) < 260:
-        return {"ok": False, "score": 0.0, "strength": "netral", "reasons": [], "context": {}}
+        # Return a fully-typed AggResult shape when data is insufficient
+        return {
+            "ok": False,
+            "side": None,
+            "score": 0.0,
+            "strength": "netral",
+            "reasons": [],
+            "breakdown": {},
+            "context": {},
+        }
     features = build_features_from_modules(df_15m, side)  # aman walau modul SMC tidak ada
     res = aggregate(
         df_15m,
@@ -134,7 +157,19 @@ def screen_symbol(symbol: str,
     """
     df = fetch_klines_binance(symbol, interval=interval, limit=limit, market=market)
     if df.empty:
-        return {"symbol": symbol, "market": market, "mode": mode, "status": "NO DATA"}
+        return {
+            "symbol": symbol,
+            "market": market,
+            "mode": mode,
+            "status": "NO DATA",
+            "side": None,
+            "score": 0.0,
+            "strength": "netral",
+            "reasons": "",
+            "regime": None,
+            "htf": None,
+            "confirms": None,
+        }
     out: Dict[str, Any] = {"symbol": symbol, "market": market, "mode": mode}
     if mode == "scalping":
         long_r = score_side(df, "LONG", agg_cfg)
@@ -191,6 +226,8 @@ def run_screener(symbols: List[str],
     df = pd.DataFrame(rows)
     # Ranking: ENTRY dulu, kemudian score desc
     if not df.empty:
+        if "score" not in df.columns:
+            df["score"] = 0.0
         df["rank_key"] = df["status"].map({"ENTRY":2,"WATCHLIST":1,"AVOID":0}).fillna(0)
         df = df.sort_values(["rank_key","score"], ascending=[False, False]).drop(columns=["rank_key"])
     if out_csv:
@@ -206,7 +243,7 @@ def main():
     ap.add_argument("--interval", default="15m")
     ap.add_argument("--market", choices=["spot","futures"], default=None, help="Override default market by mode")
     ap.add_argument("--limit", type=int, default=720, help="jumlah bar (>= 260 disarankan)")
-    ap.add_argument("--params-json", default="scalping_params.json")
+    ap.add_argument("--params-json", default="presets/scalping_params.json")
     ap.add_argument("--preset-key", default="ADAUSDT_15m")
     ap.add_argument("--out", default=None, help="CSV output (opsional)")
     args = ap.parse_args()
@@ -224,4 +261,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
