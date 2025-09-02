@@ -29,8 +29,9 @@ with st.sidebar:
     run_btn = st.button("▶️ Jalankan Screener", type="primary")
 
 if auto_refresh:
-    st.experimental_set_query_params(refresh=int(time.time()))
-    st.experimental_rerun()
+    # Use new Streamlit query params API and rerun
+    st.query_params.update({"refresh": str(int(time.time()))})
+    st.rerun()
 
 if run_btn:
     syms: List[str] = [x.strip().upper() for x in symbols.split(",") if x.strip()]
@@ -83,4 +84,3 @@ if run_btn:
         else:
             df_short = df[(df["side"]=="SHORT") & (df["status"]!="NO DATA")]
             st.dataframe(_style(df_short), use_container_width=True, height=480)
-
