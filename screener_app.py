@@ -3,6 +3,7 @@
 import os, time, json
 from typing import List, Optional
 import pandas as pd
+from pandas.io.formats.style import Styler
 import streamlit as st
 
 import sys
@@ -62,7 +63,7 @@ if run_btn:
     # Tabs
     t_all, t_long, t_short = st.tabs(["🧾 Semua", "🟦 LONG picks", "🟪 SHORT picks (scalping)"])
 
-    def _style(dfv: pd.DataFrame) -> pd.DataFrame:
+    def _style(dfv: pd.DataFrame) -> Styler:
         dfv = dfv.copy()
         return dfv.style \
             .apply(lambda s: ["background-color:#132a13;color:#9cffad" if v=="ENTRY" else
