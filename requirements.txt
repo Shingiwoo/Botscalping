@@ -11,3 +11,4 @@ python-dotenv
 ujson
 filelock
 rich
+requests

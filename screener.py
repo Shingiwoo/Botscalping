@@ -34,6 +34,8 @@ else:
             context: Dict[str, Any]
 import pandas as pd
 import numpy as np
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # pastikan modul lokal bisa diimport
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -89,7 +91,19 @@ def fetch_klines_binance(symbol: str, interval: str = "15m", limit: int = 720, m
         return _df_from_klines(cast(List[Any], raw))
     except Exception as e:
         print(f"[WARN] fetch_klines_binance gagal {symbol} {interval} {market}: {e}")
-        return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
+        # === HTTP fallback dengan timeout (lebih deterministik) ===
+        try:
+            base = "https://fapi.binance.com" if market == "futures" else "https://api.binance.com"
+            endpoint = "/fapi/v1/klines" if market == "futures" else "/api/v3/klines"
+            url = f"{base}{endpoint}"
+            params = {"symbol": symbol.upper(), "interval": interval, "limit": int(limit)}
+            r = requests.get(url, params=params, timeout=10)
+            r.raise_for_status()
+            raw = r.json()
+            return _df_from_klines(cast(List[Any], raw))
+        except Exception as e2:
+            print(f"[ERROR] HTTP fallback gagal {symbol}: {e2}")
+            return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
 
 # === Preset / Parameter Aggregator ===
 def load_scalping_preset(params_json: str = "presets/scalping_params.json",
@@ -244,11 +258,19 @@ def run_screener(symbols: List[str],
     agg_cfg = load_scalping_preset(params_json=params_json, preset_key=preset_key)
     rows: List[Dict[str, Any]] = []
     t0 = time.time()
-    for s in symbols:
-        try:
-            rows.append(screen_symbol(s.strip().upper(), mode, market, interval, limit, agg_cfg))
-        except Exception as e:
-            rows.append({"symbol": s, "market": market, "mode": mode, "status": f"ERROR: {e}"})
+    # === Parallel fetch untuk responsif ===
+    max_workers = min(8, max(2, len(symbols)))
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = {
+            ex.submit(screen_symbol, s.strip().upper(), mode, market, interval, limit, agg_cfg): s
+            for s in symbols
+        }
+        for fut in as_completed(futs):
+            s = futs[fut]
+            try:
+                rows.append(fut.result())
+            except Exception as e:
+                rows.append({"symbol": s, "market": market, "mode": mode, "status": f"ERROR: {e}"})
     df = pd.DataFrame(rows)
     # Ranking: ENTRY dulu, kemudian score desc
     if not df.empty:

@@ -11,6 +11,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from screener import run_screener  # reuse core logic
 
+# === Cache wrapper agar UI tidak "stuck" untuk input yang sama ===
+@st.cache_data(ttl=45, show_spinner=False)
+def cached_run_screener(symbols_tuple, mode, interval, sel_market, limit, params_json, preset_key):
+    return run_screener(
+        symbols=list(symbols_tuple),
+        mode=mode,
+        interval=interval,
+        market=sel_market,
+        limit=int(limit),
+        params_json=params_json,
+        preset_key=preset_key,
+    )
+
 DEFAULT_SYMBOLS = "ADAUSDT,DOGEUSDT,XRPUSDT,SOLUSDT,BNBUSDT,ETHUSDT,BTCUSDT,APTUSDT,OPUSDT,SEIUSDT,ARBUSDT,SUIUSDT,TONUSDT,LTCUSDT,LINKUSDT,ATOMUSDT"
 
 st.set_page_config(page_title="Crypto Screener (Scalping & Spot/Long)", layout="wide")
@@ -26,27 +39,21 @@ with st.sidebar:
     limit = st.slider("Bar (history)", min_value=260, max_value=1500, value=720, step=20)
     params_json = st.text_input("Preset JSON", value="presets/scalping_params.json")
     preset_key = st.text_input("Preset Key", value="ADAUSDT_15m")
-    auto_refresh = st.checkbox("Auto-refresh tiap 30 detik", value=False)
+    auto_refresh = st.checkbox("Auto-refresh tiap 30 detik (aktif setelah hasil tampil)", value=False)
     run_btn = st.button("▶️ Jalankan Screener", type="primary")
 
-if auto_refresh:
-    # Use new Streamlit query params API and rerun
-    st.query_params.update({"refresh": str(int(time.time()))})
-    st.rerun()
+# NOTE:
+# Auto-refresh dipindah ke bagian paling bawah SETELAH hasil tampil.
+# Menghindari rerun loop sebelum analisa berjalan.
 
 if run_btn:
     syms: List[str] = [x.strip().upper() for x in symbols.split(",") if x.strip()]
     sel_market = None if market=="auto" else market
     with st.spinner("Mengambil data & menghitung skor..."):
-        df = run_screener(
-            symbols=syms,
-            mode=mode,
-            interval=interval,
-            market=sel_market,
-            limit=int(limit),
-            params_json=params_json,
-            preset_key=preset_key,
-        )
+        # Progress bar (indikatif), karena run_screener sudah paralel
+        prog = st.progress(10, text="Memproses simbol...")
+        df = cached_run_screener(tuple(syms), mode, interval, sel_market, int(limit), params_json, preset_key)
+        prog.progress(100, text="Selesai memproses.")
     st.success(f"Selesai. {len(df)} simbol.")
 
     if df.empty:
@@ -85,3 +92,9 @@ if run_btn:
         else:
             df_short = df[(df["side"]=="SHORT") & (df["status"]!="NO DATA")]
             st.dataframe(_style(df_short), use_container_width=True, height=480)
+
+    # === Auto-refresh aman (30 dtk) – hanya setelah hasil tampil ===
+    if auto_refresh:
+        st.caption("⏳ Auto-refresh aktif. App akan refresh tiap 30 detik…")
+        time.sleep(30)
+        st.rerun()
