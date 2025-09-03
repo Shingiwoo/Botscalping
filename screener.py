@@ -12,7 +12,7 @@ Ketergantungan:
 Integrasi skor via aggregator.aggregate (modular).
 """
 from __future__ import annotations
-import os, sys, json, argparse, time
+import os, sys, json, argparse, time, logging
 from typing import Dict, Any, List, Tuple, Optional, cast, TYPE_CHECKING
 from typing import Literal, TypedDict
 
@@ -46,6 +46,16 @@ try:
 except Exception:
     from aggregator import aggregate, build_features_from_modules  # type: ignore
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s"
+)
+log = logging.getLogger("screener")
+
+# === Mode penggunaan python-binance (opsional) ===
+# Default: HTTP-only agar tidak butuh modul 'binance'.
+USE_PYBINANCE = os.getenv("USE_PYBINANCE", "0") == "1"
+
 # === DataFetcher (Binance) ===
 def _df_from_klines(raw: list) -> pd.DataFrame:
     """
@@ -61,48 +71,89 @@ def _df_from_klines(raw: list) -> pd.DataFrame:
     df = df[["timestamp","open","high","low","close","volume"]].dropna().reset_index(drop=True)
     return df
 
-def fetch_klines_binance(symbol: str, interval: str = "15m", limit: int = 720, market: str = "spot") -> pd.DataFrame:
+def _http_get_klines(symbol: str, interval: str, limit: int, market: str,
+                     timeout: float = 10.0, retries: int = 2, backoff: float = 0.8) -> pd.DataFrame:
     """
-    market: 'spot' | 'futures'
+    HTTP klines resmi Binance.
+    - market='futures' -> fapi
+    - market='spot'    -> api
+    Retry ringan bila status >= 500 / network error.
     """
-    try:
-        # Try futures endpoint first if requested, with graceful fallback to python-binance futures,
-        # then to spot only if both futures clients are unavailable.
-        if market == "futures":
-            # 1) binance-connector (UMFutures)
-            try:
-                from binance.um_futures import UMFutures  # type: ignore
-                cli_um = UMFutures()  # public endpoint cukup
-                raw = cli_um.klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
-                return _df_from_klines(cast(List[Any], raw))
-            except Exception:
-                # 2) python-binance futures endpoint
-                try:
-                    from binance.client import Client  # type: ignore
-                    cli = Client()
-                    raw = cli.futures_klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
-                    return _df_from_klines(cast(List[Any], raw))
-                except Exception as e2:
-                    print(f"[WARN] futures API unavailable for {symbol}, fallback to spot: {e2}")
-        # Spot fetch (default or fallback)
-        from binance.client import Client  # type: ignore
-        cli = Client()  # public endpoint cukup
-        raw = cli.get_klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
-        return _df_from_klines(cast(List[Any], raw))
-    except Exception as e:
-        print(f"[WARN] fetch_klines_binance gagal {symbol} {interval} {market}: {e}")
-        # === HTTP fallback dengan timeout (lebih deterministik) ===
+    base = "https://fapi.binance.com" if market == "futures" else "https://api.binance.com"
+    endpoint = "/fapi/v1/klines" if market == "futures" else "/api/v3/klines"
+    url = f"{base}{endpoint}"
+    params = {"symbol": symbol.upper(), "interval": interval, "limit": int(limit)}
+    for i in range(retries + 1):
         try:
-            base = "https://fapi.binance.com" if market == "futures" else "https://api.binance.com"
-            endpoint = "/fapi/v1/klines" if market == "futures" else "/api/v3/klines"
-            url = f"{base}{endpoint}"
-            params = {"symbol": symbol.upper(), "interval": interval, "limit": int(limit)}
-            r = requests.get(url, params=params, timeout=10)
+            r = requests.get(url, params=params, timeout=timeout, headers={"User-Agent": "Botscalping-Screener/1.0"})
+            if r.status_code >= 500:
+                raise requests.HTTPError(f"{r.status_code} server error")
+            if r.status_code == 400:
+                # kemungkinan symbol tidak tersedia di market tsb (misal tak listed di futures)
+                # kita biarkan caller yang memutuskan fallback
+                r.raise_for_status()
             r.raise_for_status()
             raw = r.json()
             return _df_from_klines(cast(List[Any], raw))
+        except Exception:
+            if i < retries:
+                time.sleep(backoff * (i + 1))
+                continue
+            raise
+    # Fallback for type checkers; in practice we either returned or raised above
+    return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
+
+def fetch_klines_binance(symbol: str, interval: str = "15m", limit: int = 720, market: str = "spot") -> pd.DataFrame:
+    """
+    market: 'spot' | 'futures'
+    - Default: HTTP-only (stabil, tanpa dependency binance)
+    - Jika USE_PYBINANCE=1, akan coba python-binance lalu fallback HTTP.
+    - Bila market=futures tidak tersedia untuk symbol tsb, otomatis fallback ke spot **sekali**.
+    """
+    # 1) HTTP-first (default)
+    if not USE_PYBINANCE:
+        try:
+            return _http_get_klines(symbol, interval, limit, market)
+        except requests.HTTPError as e:
+            # simbol tak ada di futures? fallback ke spot
+            if market == "futures":
+                try:
+                    log.warning(f"[WARN] {symbol} tidak tersedia di FUTURES, fallback ke SPOT.")
+                    return _http_get_klines(symbol, interval, limit, "spot")
+                except Exception:
+                    pass
+            log.warning(f"[WARN] HTTP klines gagal {symbol} {interval} {market}: {e}")
+            return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
+        except Exception as e:
+            log.warning(f"[WARN] HTTP klines error {symbol} {interval} {market}: {e}")
+            return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
+
+    # 2) Optional: python-binance lalu HTTP fallback
+    try:
+        if market == "futures":
+            from binance.um_futures import UMFutures  # type: ignore
+            cli = UMFutures()
+            raw = cli.klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
+        else:
+            from binance.client import Client  # type: ignore
+            cli = Client()
+            raw = cli.get_klines(symbol=symbol.upper(), interval=interval, limit=int(limit))
+        return _df_from_klines(cast(List[Any], raw))
+    except Exception as e:
+        log.warning(f"[WARN] python-binance gagal {symbol} {interval} {market}: {e} -> fallback HTTP")
+        try:
+            return _http_get_klines(symbol, interval, limit, market)
+        except requests.HTTPError as e2:
+            if market == "futures":
+                try:
+                    log.warning(f"[WARN] {symbol} tidak tersedia di FUTURES, fallback ke SPOT.")
+                    return _http_get_klines(symbol, interval, limit, "spot")
+                except Exception:
+                    pass
+            log.warning(f"[WARN] HTTP klines gagal {symbol} {interval} {market}: {e2}")
+            return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
         except Exception as e2:
-            print(f"[ERROR] HTTP fallback gagal {symbol}: {e2}")
+            log.warning(f"[WARN] HTTP klines error {symbol} {interval} {market}: {e2}")
             return pd.DataFrame(columns=["timestamp","open","high","low","close","volume"])
 
 # === Preset / Parameter Aggregator ===
@@ -281,7 +332,7 @@ def run_screener(symbols: List[str],
     if out_csv:
         df.to_csv(out_csv, index=False)
         print(f"[INFO] Screener saved -> {out_csv}")
-    print(f"[INFO] Done in {time.time()-t0:.2f}s")
+    log.info(f"[INFO] Done in {time.time()-t0:.2f}s")
     return df
 
 def print_rich_table(df: pd.DataFrame) -> None:
