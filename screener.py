@@ -56,6 +56,74 @@ log = logging.getLogger("screener")
 # Default: HTTP-only agar tidak butuh modul 'binance'.
 USE_PYBINANCE = os.getenv("USE_PYBINANCE", "0") == "1"
 
+# ========= helpers: load coin_config & deep merge =========
+def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Deep-merge dict b into a (non-mutating)."""
+    out = dict(a)
+    for k, v in b.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)  # type: ignore[index]
+        else:
+            out[k] = v
+    return out
+
+def load_coin_config(path: str = "coin_config.json") -> Dict[str, Any]:
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        log.warning(f"[WARN] coin_config load gagal: {e}")
+        return {}
+
+def overrides_from_coin_config(symbol: str, ccfg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Ambil subset key dari coin_config yang relevan untuk screener/aggregator.
+    Mapping kunci yang dipakai screener:
+      - min_atr_pct, max_atr_pct, max_body_atr
+      - filters.atr/body/max_body_over_atr
+      - sl_atr_mult, sl_pct
+      - be_trigger_pct, trailing_trigger, trailing_step
+      - use_sr_filter, sr_near_pct
+      - score_gate
+      - use_htf_filter -> kosongkan htf_rules jika 0
+    """
+    node = dict(ccfg.get(symbol, {}))
+    if not node:
+        return {}
+    out: Dict[str, Any] = {}
+    for k in (
+        "min_atr_pct",
+        "max_atr_pct",
+        "max_body_atr",
+        "sl_atr_mult",
+        "sl_pct",
+        "be_trigger_pct",
+        "trailing_trigger",
+        "trailing_step",
+        "use_sr_filter",
+        "sr_near_pct",
+        "score_gate",
+    ):
+        if k in node:
+            out[k] = node[k]
+    # filters
+    f = node.get("filters", {})
+    if isinstance(f, dict) and f:
+        out["filters"] = {
+            "atr": bool(f.get("atr", True)),
+            "body": bool(f.get("body", True)),
+            "max_body_over_atr": float(f.get("max_body_over_atr", out.get("max_body_atr", 1.25))),
+        }
+        # sinkronkan ke max_body_atr jika ada
+        out["max_body_atr"] = float(out["filters"]["max_body_over_atr"])  # type: ignore[index]
+    # HTF
+    try:
+        if int(node.get("use_htf_filter", 1)) == 0:
+            out["htf_rules"] = tuple()  # matikan HTF gating
+    except Exception:
+        pass
+    return out
+
 # === DataFetcher (Binance) ===
 def _df_from_klines(raw: list) -> pd.DataFrame:
     """
@@ -302,20 +370,29 @@ def run_screener(symbols: List[str],
                  limit: int = 720,
                  params_json: str = "presets/scalping_params.json",
                  preset_key: str = "ADAUSDT_15m",
-                 out_csv: Optional[str] = None) -> pd.DataFrame:
+                 out_csv: Optional[str] = None,
+                 coin_config_path: str = "coin_config.json",
+                 use_coin_cfg: bool = True) -> pd.DataFrame:
     # default market per mode
     if market is None:
         market = "futures" if mode == "scalping" else "spot"
     agg_cfg = load_scalping_preset(params_json=params_json, preset_key=preset_key)
+    coin_cfg = load_coin_config(coin_config_path) if use_coin_cfg else {}
     rows: List[Dict[str, Any]] = []
     t0 = time.time()
     # === Parallel fetch untuk responsif ===
     max_workers = min(8, max(2, len(symbols)))
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futs = {
-            ex.submit(screen_symbol, s.strip().upper(), mode, market, interval, limit, agg_cfg): s
-            for s in symbols
-        }
+        futs = {}
+        for s in symbols:
+            s_up = s.strip().upper()
+            sym_cfg = agg_cfg
+            if use_coin_cfg and coin_cfg:
+                try:
+                    sym_cfg = _deep_merge(agg_cfg, overrides_from_coin_config(s_up, coin_cfg))
+                except Exception as e:
+                    log.warning(f"[WARN] overrides {s_up} diabaikan: {e}")
+            futs[ex.submit(screen_symbol, s_up, mode, market, interval, limit, sym_cfg)] = s_up
         for fut in as_completed(futs):
             s = futs[fut]
             try:
@@ -378,6 +455,8 @@ def main():
     ap.add_argument("--preset-key", default="ADAUSDT_15m")
     ap.add_argument("--out", default=None, help="CSV output (opsional)")
     ap.add_argument("--rich", action="store_true", help="Tampilkan tabel berwarna di terminal")
+    ap.add_argument("--coin-config", default="coin_config.json", help="Path coin_config.json")
+    ap.add_argument("--no-coincfg", action="store_true", help="Abaikan override dari coin_config")
     args = ap.parse_args()
     syms = [x for x in args.symbols.split(",") if x.strip()]
     df = run_screener(
@@ -389,6 +468,8 @@ def main():
         params_json=args.params_json,
         preset_key=args.preset_key,
         out_csv=args.out,
+        coin_config_path=args.coin_config,
+        use_coin_cfg=not args.no_coincfg,
     )
     if args.rich:
         print_rich_table(df)

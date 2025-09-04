@@ -13,7 +13,7 @@ from screener import run_screener  # reuse core logic
 
 # === Cache wrapper agar UI tidak "stuck" untuk input yang sama ===
 @st.cache_data(ttl=45, show_spinner=False)
-def cached_run_screener(symbols_tuple, mode, interval, sel_market, limit, params_json, preset_key):
+def cached_run_screener(symbols_tuple, mode, interval, sel_market, limit, params_json, preset_key, coin_config_path, use_coin_cfg):
     return run_screener(
         symbols=list(symbols_tuple),
         mode=mode,
@@ -22,6 +22,8 @@ def cached_run_screener(symbols_tuple, mode, interval, sel_market, limit, params
         limit=int(limit),
         params_json=params_json,
         preset_key=preset_key,
+        coin_config_path=coin_config_path,
+        use_coin_cfg=use_coin_cfg,
     )
 
 DEFAULT_SYMBOLS = "ADAUSDT,DOGEUSDT,XRPUSDT,SOLUSDT,BNBUSDT,ETHUSDT,BTCUSDT,APTUSDT,OPUSDT,SEIUSDT,ARBUSDT,SUIUSDT,TONUSDT,LTCUSDT,LINKUSDT,ATOMUSDT"
@@ -39,6 +41,8 @@ with st.sidebar:
     limit = st.slider("Bar (history)", min_value=260, max_value=1500, value=720, step=20)
     params_json = st.text_input("Preset JSON", value="presets/scalping_params.json")
     preset_key = st.text_input("Preset Key", value="GLOBAL_15m")
+    coin_config_path = st.text_input("Coin Config", value="coin_config.json")
+    use_coin_cfg = st.checkbox("Gunakan override dari coin_config.json", value=True)
     auto_refresh = st.checkbox("Auto-refresh tiap 180 detik (aktif setelah hasil tampil)", value=False)
     run_btn = st.button("▶️ Jalankan Screener", type="primary")
 
@@ -52,7 +56,7 @@ if run_btn:
     with st.spinner("Mengambil data & menghitung skor..."):
         # Progress bar (indikatif), karena run_screener sudah paralel
         prog = st.progress(10, text="Memproses simbol...")
-        df = cached_run_screener(tuple(syms), mode, interval, sel_market, int(limit), params_json, preset_key)
+        df = cached_run_screener(tuple(syms), mode, interval, sel_market, int(limit), params_json, preset_key, coin_config_path, use_coin_cfg)
         prog.progress(100, text="Selesai memproses.")
     st.success(f"Selesai. {len(df)} simbol.")
 
