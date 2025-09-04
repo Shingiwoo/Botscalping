@@ -75,21 +75,8 @@ def load_coin_config(path: str = "coin_config.json") -> Dict[str, Any]:
         log.warning(f"[WARN] coin_config load gagal: {e}")
         return {}
 
-def overrides_from_coin_config(symbol: str, ccfg: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Ambil subset key dari coin_config yang relevan untuk screener/aggregator.
-    Mapping kunci yang dipakai screener:
-      - min_atr_pct, max_atr_pct, max_body_atr
-      - filters.atr/body/max_body_over_atr
-      - sl_atr_mult, sl_pct
-      - be_trigger_pct, trailing_trigger, trailing_step
-      - use_sr_filter, sr_near_pct
-      - score_gate
-      - use_htf_filter -> kosongkan htf_rules jika 0
-    """
-    node = dict(ccfg.get(symbol, {}))
-    if not node:
-        return {}
+def _subset_overrides(node: Dict[str, Any]) -> Dict[str, Any]:
+    """Ambil kunci yang relevan untuk screener/aggregator saja."""
     out: Dict[str, Any] = {}
     for k in (
         "min_atr_pct",
@@ -106,22 +93,50 @@ def overrides_from_coin_config(symbol: str, ccfg: Dict[str, Any]) -> Dict[str, A
     ):
         if k in node:
             out[k] = node[k]
-    # filters
     f = node.get("filters", {})
     if isinstance(f, dict) and f:
         out["filters"] = {
             "atr": bool(f.get("atr", True)),
             "body": bool(f.get("body", True)),
-            "max_body_over_atr": float(f.get("max_body_over_atr", out.get("max_body_atr", 1.25))),
+            "max_body_over_atr": float(f.get("max_body_over_atr", node.get("max_body_atr", 1.25))),
         }
-        # sinkronkan ke max_body_atr jika ada
         out["max_body_atr"] = float(out["filters"]["max_body_over_atr"])  # type: ignore[index]
-    # HTF
+    # HTF gate
     try:
         if int(node.get("use_htf_filter", 1)) == 0:
-            out["htf_rules"] = tuple()  # matikan HTF gating
+            out["htf_rules"] = tuple()
     except Exception:
         pass
+    return out
+
+def overrides_from_coin_config(
+    symbol: str,
+    ccfg: Dict[str, Any],
+    profile: str = "base",
+    profiles_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """
+    Urutan merge:
+      1) Top-level coin (jika ada kunci relevan)
+      2) Profil terpilih (per-coin map > global)
+    """
+    node = dict(ccfg.get(symbol, {}))
+    if not node:
+        return {}
+    out = _subset_overrides(node)
+    # pilih profil
+    prof_name: Optional[str] = None
+    if profiles_map and symbol in profiles_map:
+        prof_name = profiles_map[symbol]
+    elif profile and profile != "base":
+        prof_name = profile
+    if prof_name:
+        try:
+            prof_dict = ((node.get("profiles") or {}).get(prof_name) or {})
+            if prof_dict:
+                out = _deep_merge(out, _subset_overrides(cast(Dict[str, Any], prof_dict)))
+        except Exception as e:
+            log.warning(f"[WARN] profil '{prof_name}' untuk {symbol} diabaikan: {e}")
     return out
 
 # === DataFetcher (Binance) ===
@@ -372,7 +387,9 @@ def run_screener(symbols: List[str],
                  preset_key: str = "ADAUSDT_15m",
                  out_csv: Optional[str] = None,
                  coin_config_path: str = "coin_config.json",
-                 use_coin_cfg: bool = True) -> pd.DataFrame:
+                 use_coin_cfg: bool = True,
+                 profile: str = "base",
+                 profiles_map: Optional[Dict[str, str]] = None) -> pd.DataFrame:
     # default market per mode
     if market is None:
         market = "futures" if mode == "scalping" else "spot"
@@ -389,7 +406,10 @@ def run_screener(symbols: List[str],
             sym_cfg = agg_cfg
             if use_coin_cfg and coin_cfg:
                 try:
-                    sym_cfg = _deep_merge(agg_cfg, overrides_from_coin_config(s_up, coin_cfg))
+                    sym_cfg = _deep_merge(
+                        agg_cfg,
+                        overrides_from_coin_config(s_up, coin_cfg, profile=profile, profiles_map=profiles_map)
+                    )
                 except Exception as e:
                     log.warning(f"[WARN] overrides {s_up} diabaikan: {e}")
             futs[ex.submit(screen_symbol, s_up, mode, market, interval, limit, sym_cfg)] = s_up
@@ -457,8 +477,25 @@ def main():
     ap.add_argument("--rich", action="store_true", help="Tampilkan tabel berwarna di terminal")
     ap.add_argument("--coin-config", default="coin_config.json", help="Path coin_config.json")
     ap.add_argument("--no-coincfg", action="store_true", help="Abaikan override dari coin_config")
+    ap.add_argument("--profile", choices=["base","conservative","aggressive"], default="base",
+                    help="Pilih profil global; bisa ditimpa per-coin via --profiles-map")
+    ap.add_argument("--profiles-map", default=None,
+                    help="Mapping per-coin, contoh: BTCUSDT:conservative,ETHUSDT:aggressive")
     args = ap.parse_args()
     syms = [x for x in args.symbols.split(",") if x.strip()]
+    # parse profiles-map
+    pmap: Optional[Dict[str, str]] = None
+    if args.profiles_map:
+        pmap = {}
+        for tok in str(args.profiles_map).split(","):
+            tok = tok.strip()
+            if not tok or ":" not in tok:
+                continue
+            k, v = tok.split(":", 1)
+            pv = v.strip().lower()
+            if pv in ("conservative", "aggressive"):
+                pmap[k.strip().upper()] = pv
+
     df = run_screener(
         symbols=syms,
         mode=args.mode,
@@ -470,6 +507,8 @@ def main():
         out_csv=args.out,
         coin_config_path=args.coin_config,
         use_coin_cfg=not args.no_coincfg,
+        profile=args.profile,
+        profiles_map=pmap,
     )
     if args.rich:
         print_rich_table(df)

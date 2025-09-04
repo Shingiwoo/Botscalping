@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os, time, json
-from typing import List, Optional
+from typing import List, Optional, Dict
 import pandas as pd
 from pandas.io.formats.style import Styler
 import streamlit as st
@@ -13,7 +13,17 @@ from screener import run_screener  # reuse core logic
 
 # === Cache wrapper agar UI tidak "stuck" untuk input yang sama ===
 @st.cache_data(ttl=45, show_spinner=False)
-def cached_run_screener(symbols_tuple, mode, interval, sel_market, limit, params_json, preset_key, coin_config_path, use_coin_cfg):
+def cached_run_screener(symbols_tuple,
+                        mode,
+                        interval,
+                        sel_market,
+                        limit,
+                        params_json,
+                        preset_key,
+                        coin_config_path,
+                        use_coin_cfg,
+                        profile,
+                        profiles_map: Optional[Dict[str, str]]):
     return run_screener(
         symbols=list(symbols_tuple),
         mode=mode,
@@ -24,6 +34,8 @@ def cached_run_screener(symbols_tuple, mode, interval, sel_market, limit, params
         preset_key=preset_key,
         coin_config_path=coin_config_path,
         use_coin_cfg=use_coin_cfg,
+        profile=profile,
+        profiles_map=profiles_map,
     )
 
 DEFAULT_SYMBOLS = "ADAUSDT,DOGEUSDT,XRPUSDT,SOLUSDT,BNBUSDT,ETHUSDT,BTCUSDT,APTUSDT,OPUSDT,SEIUSDT,ARBUSDT,SUIUSDT,TONUSDT,LTCUSDT,LINKUSDT,ATOMUSDT"
@@ -43,6 +55,8 @@ with st.sidebar:
     preset_key = st.text_input("Preset Key", value="GLOBAL_15m")
     coin_config_path = st.text_input("Coin Config", value="coin_config.json")
     use_coin_cfg = st.checkbox("Gunakan override dari coin_config.json", value=True)
+    profile = st.selectbox("Profil Global", ["base","conservative","aggressive"], index=1)
+    profiles_map_str = st.text_input("Profiles Map (opsional)", value="BTCUSDT:conservative,ETHUSDT:conservative")
     auto_refresh = st.checkbox("Auto-refresh tiap 180 detik (aktif setelah hasil tampil)", value=False)
     run_btn = st.button("▶️ Jalankan Screener", type="primary")
 
@@ -56,7 +70,23 @@ if run_btn:
     with st.spinner("Mengambil data & menghitung skor..."):
         # Progress bar (indikatif), karena run_screener sudah paralel
         prog = st.progress(10, text="Memproses simbol...")
-        df = cached_run_screener(tuple(syms), mode, interval, sel_market, int(limit), params_json, preset_key, coin_config_path, use_coin_cfg)
+        # parse profiles-map
+        pmap = None
+        if profiles_map_str:
+            pmap = {}
+            for tok in profiles_map_str.split(","):
+                tok = tok.strip()
+                if not tok or ":" not in tok:
+                    continue
+                k, v = tok.split(":", 1)
+                pv = v.strip().lower()
+                if pv in ("conservative","aggressive"):
+                    pmap[k.strip().upper()] = pv
+        df = cached_run_screener(
+            tuple(syms), mode, interval, sel_market, int(limit),
+            params_json, preset_key, coin_config_path, use_coin_cfg,
+            profile, pmap
+        )
         prog.progress(100, text="Selesai memproses.")
     st.success(f"Selesai. {len(df)} simbol.")
 

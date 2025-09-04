@@ -107,6 +107,26 @@
         "sr_near_support": 0.10,
         "sr_near_resistance": 0.10
       }
+    },
+    "profiles": {
+      "conservative": {
+        "min_atr_pct": 0.0045, "max_atr_pct": 0.012,
+        "max_body_atr": 1.25,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.25},
+        "sl_atr_mult": 1.6, "sl_pct": 0.008,
+        "be_trigger_pct": 0.006, "trailing_trigger": 0.006, "trailing_step": 0.003,
+        "use_sr_filter": true, "sr_near_pct": 0.80,
+        "score_gate": 0.60, "use_htf_filter": 1
+      },
+      "aggressive": {
+        "min_atr_pct": 0.0035, "max_atr_pct": 0.018,
+        "max_body_atr": 1.45,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.45},
+        "sl_atr_mult": 1.4, "sl_pct": 0.008,
+        "be_trigger_pct": 0.007, "trailing_trigger": 0.007, "trailing_step": 0.0035,
+        "use_sr_filter": true, "sr_near_pct": 0.70,
+        "score_gate": 0.55, "use_htf_filter": 1
+      }
     }
   },
   "ALGOUSDT": {
@@ -172,7 +192,27 @@
     "trailing_trigger": 1.0,
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
-    "use_htf_filter": 1
+    "use_htf_filter": 1,
+    "profiles": {
+      "conservative": {
+        "min_atr_pct": 0.0040, "max_atr_pct": 0.015,
+        "max_body_atr": 1.25,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.25},
+        "sl_atr_mult": 1.6, "sl_pct": 0.009,
+        "be_trigger_pct": 0.006, "trailing_trigger": 0.006, "trailing_step": 0.003,
+        "use_sr_filter": true, "sr_near_pct": 0.80,
+        "score_gate": 0.60, "use_htf_filter": 1
+      },
+      "aggressive": {
+        "min_atr_pct": 0.0030, "max_atr_pct": 0.020,
+        "max_body_atr": 1.45,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.45},
+        "sl_atr_mult": 1.4, "sl_pct": 0.009,
+        "be_trigger_pct": 0.007, "trailing_trigger": 0.007, "trailing_step": 0.0035,
+        "use_sr_filter": true, "sr_near_pct": 0.70,
+        "score_gate": 0.55, "use_htf_filter": 1
+      }
+    }
   },
   "DOGEUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -248,7 +288,27 @@
     "use_breakeven": 1,
     "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
-    "weak_tp_roi_pct": 0.1
+    "weak_tp_roi_pct": 0.1,
+    "profiles": {
+      "conservative": {
+        "min_atr_pct": 0.0050, "max_atr_pct": 0.018,
+        "max_body_atr": 1.30,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.30},
+        "sl_atr_mult": 1.6, "sl_pct": 0.010,
+        "be_trigger_pct": 0.006, "trailing_trigger": 0.006, "trailing_step": 0.003,
+        "use_sr_filter": true, "sr_near_pct": 0.85,
+        "score_gate": 0.62, "use_htf_filter": 1
+      },
+      "aggressive": {
+        "min_atr_pct": 0.0035, "max_atr_pct": 0.022,
+        "max_body_atr": 1.5,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.5},
+        "sl_atr_mult": 1.4, "sl_pct": 0.010,
+        "be_trigger_pct": 0.007, "trailing_trigger": 0.008, "trailing_step": 0.0035,
+        "use_sr_filter": true, "sr_near_pct": 0.70,
+        "score_gate": 0.55, "use_htf_filter": 1
+      }
+    }
   },
   "DOTUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -324,7 +384,27 @@
     "use_breakeven": 1,
     "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
-    "weak_tp_roi_pct": 0.1
+    "weak_tp_roi_pct": 0.1,
+    "profiles": {
+      "conservative": {
+        "min_atr_pct": 0.0035, "max_atr_pct": 0.016,
+        "max_body_atr": 1.30,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.30},
+        "sl_atr_mult": 1.6, "sl_pct": 0.009,
+        "be_trigger_pct": 0.006, "trailing_trigger": 0.006, "trailing_step": 0.003,
+        "use_sr_filter": true, "sr_near_pct": 0.80,
+        "score_gate": 0.60, "use_htf_filter": 1
+      },
+      "aggressive": {
+        "min_atr_pct": 0.0030, "max_atr_pct": 0.020,
+        "max_body_atr": 1.45,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.45},
+        "sl_atr_mult": 1.4, "sl_pct": 0.009,
+        "be_trigger_pct": 0.007, "trailing_trigger": 0.007, "trailing_step": 0.0035,
+        "use_sr_filter": true, "sr_near_pct": 0.70,
+        "score_gate": 0.55, "use_htf_filter": 1
+      }
+    }
   },
   "SYMBOL_DEFAULTS": {
     "adopt_manual_positions": 1,
@@ -479,7 +559,27 @@
     "use_breakeven": 1,
     "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
-    "weak_tp_roi_pct": 0.1
+    "weak_tp_roi_pct": 0.1,
+    "profiles": {
+      "conservative": {
+        "min_atr_pct": 0.0045, "max_atr_pct": 0.012,
+        "max_body_atr": 1.25,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.25},
+        "sl_atr_mult": 1.6, "sl_pct": 0.008,
+        "be_trigger_pct": 0.006, "trailing_trigger": 0.006, "trailing_step": 0.003,
+        "use_sr_filter": true, "sr_near_pct": 0.80,
+        "score_gate": 0.60, "use_htf_filter": 1
+      },
+      "aggressive": {
+        "min_atr_pct": 0.0035, "max_atr_pct": 0.018,
+        "max_body_atr": 1.45,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.45},
+        "sl_atr_mult": 1.4, "sl_pct": 0.008,
+        "be_trigger_pct": 0.007, "trailing_trigger": 0.007, "trailing_step": 0.0035,
+        "use_sr_filter": true, "sr_near_pct": 0.70,
+        "score_gate": 0.55, "use_htf_filter": 1
+      }
+    }
   },
   "BTCUSDT": {
     "SLIPPAGE_PCT": 0.0008,
@@ -556,6 +656,26 @@
       "rejection_vol_mult": 1.5,
       "false_breakout_atr_mult": 0.45,
       "near_zone_atr_mult": 0.7
+    },
+    "profiles": {
+      "conservative": {
+        "min_atr_pct": 0.0015, "max_atr_pct": 0.020,
+        "max_body_atr": 1.20,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.20},
+        "sl_atr_mult": 1.4, "sl_pct": 0.006,
+        "be_trigger_pct": 0.004, "trailing_trigger": 0.004, "trailing_step": 0.002,
+        "use_sr_filter": true, "sr_near_pct": 0.80,
+        "score_gate": 0.60, "use_htf_filter": 1
+      },
+      "aggressive": {
+        "min_atr_pct": 0.0010, "max_atr_pct": 0.030,
+        "max_body_atr": 1.45,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.45},
+        "sl_atr_mult": 1.4, "sl_pct": 0.006,
+        "be_trigger_pct": 0.005, "trailing_trigger": 0.006, "trailing_step": 0.003,
+        "use_sr_filter": true, "sr_near_pct": 0.70,
+        "score_gate": 0.55, "use_htf_filter": 1
+      }
     }
   },
   "ETHUSDT": {
@@ -617,6 +737,26 @@
     "use_breakeven": 1,
     "use_htf_filter": 1,
     "use_trailing_on_strong": 1,
-    "weak_tp_roi_pct": 0.09
+    "weak_tp_roi_pct": 0.09,
+    "profiles": {
+      "conservative": {
+        "min_atr_pct": 0.0025, "max_atr_pct": 0.025,
+        "max_body_atr": 1.30,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.30},
+        "sl_atr_mult": 1.5, "sl_pct": 0.007,
+        "be_trigger_pct": 0.005, "trailing_trigger": 0.005, "trailing_step": 0.0025,
+        "use_sr_filter": true, "sr_near_pct": 0.80,
+        "score_gate": 0.60, "use_htf_filter": 1
+      },
+      "aggressive": {
+        "min_atr_pct": 0.0020, "max_atr_pct": 0.035,
+        "max_body_atr": 1.45,
+        "filters": {"atr": true, "body": true, "max_body_over_atr": 1.45},
+        "sl_atr_mult": 1.4, "sl_pct": 0.007,
+        "be_trigger_pct": 0.006, "trailing_trigger": 0.007, "trailing_step": 0.003,
+        "use_sr_filter": true, "sr_near_pct": 0.70,
+        "score_gate": 0.55, "use_htf_filter": 1
+      }
+    }
   }
 }
