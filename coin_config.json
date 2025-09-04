@@ -4,7 +4,12 @@
     "weak_spot_up_pct": 0.01,
     "weak_fut_up_roi": 0.15,
     "use_trailing_when_strong": true,
-    "min_confirms": 1
+     "strength_thresholds": {
+      "weak": 0.30,
+      "fair": 0.60,
+      "strong": 0.75,
+      "min_confirms": 1
+    }
   },
   "ADAUSDT": {
     "SLIPPAGE_PCT": 0.003,
