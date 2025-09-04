@@ -8,6 +8,7 @@
     "rsi_short_min": 72,
     "rsi_short_max": 90,
     "min_atr_pct": 0.45,
+    "min_confirms": 1,
     "max_atr_pct": 0.12,
     "max_body_atr": 1.4,
     "filters": {
