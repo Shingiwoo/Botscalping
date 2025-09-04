@@ -38,8 +38,8 @@ with st.sidebar:
     interval = st.selectbox("Interval", ["5m","15m","30m","1h"], index=1)
     limit = st.slider("Bar (history)", min_value=260, max_value=1500, value=720, step=20)
     params_json = st.text_input("Preset JSON", value="presets/scalping_params.json")
-    preset_key = st.text_input("Preset Key", value="ADAUSDT_15m")
-    auto_refresh = st.checkbox("Auto-refresh tiap 30 detik (aktif setelah hasil tampil)", value=False)
+    preset_key = st.text_input("Preset Key", value="GLOBAL_15m")
+    auto_refresh = st.checkbox("Auto-refresh tiap 180 detik (aktif setelah hasil tampil)", value=False)
     run_btn = st.button("▶️ Jalankan Screener", type="primary")
 
 # NOTE:
@@ -96,5 +96,5 @@ if run_btn:
     # === Auto-refresh aman (30 dtk) – hanya setelah hasil tampil ===
     if auto_refresh:
         st.caption("⏳ Auto-refresh aktif. App akan refresh tiap 30 detik…")
-        time.sleep(30)
+        time.sleep(180)
         st.rerun()

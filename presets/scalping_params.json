@@ -1,5 +1,5 @@
 {
-  "ADAUSDT_15m": {
+  "GLOBAL_15m": {
     "ema_len": 22,
     "sma_len": 20,
     "rsi_period": 21,
