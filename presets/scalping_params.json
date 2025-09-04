@@ -1,7 +1,7 @@
 {
   "GLOBAL_15m": {
     "ema_len": 22,
-    "sma_len": 20,
+    "sma_len": 50,
     "rsi_period": 21,
     "rsi_long_min": 20,
     "rsi_long_max": 55,
