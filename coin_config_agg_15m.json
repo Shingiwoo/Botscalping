@@ -157,31 +157,7 @@
         "use_htf_filter": 1
       }
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.5,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.2,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.62,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "cukup"
-    }
+    "_agg": {}
   },
   "ALGOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -287,31 +263,7 @@
         "use_htf_filter": 1
       }
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   },
   "DOGEUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -428,31 +380,7 @@
         "use_htf_filter": 1
       }
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   },
   "DOTUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -569,31 +497,7 @@
         "use_htf_filter": 1
       }
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   },
   "SYMBOL_DEFAULTS": {
     "adopt_manual_positions": 0,
@@ -619,31 +523,7 @@
       "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   },
   "TURBOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -709,31 +589,7 @@
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
     "use_htf_filter": 1,
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   },
   "XRPUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -839,31 +695,7 @@
         "use_htf_filter": 1
       }
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   },
   "BTCUSDT": {
     "SLIPPAGE_PCT": 0.0008,
@@ -987,31 +819,7 @@
         "use_htf_filter": 1
       }
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   },
   "ETHUSDT": {
     "SLIPPAGE_PCT": 0.001,
@@ -1116,30 +924,6 @@
         "use_htf_filter": 1
       }
     },
-    "_agg": {
-      "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
-      },
-      "vol_z_thr": 1.6,
-      "confirm_bonus_max": 0.1,
-      "vol_lookback": 20,
-      "no_confirms_require": [
-        "adx",
-        "width_atr",
-        "body_atr"
-      ],
-      "confirm_bonus_per": 0.05,
-      "score_gate": 0.55,
-      "sd_tol_pct": 2.0,
-      "htf_rules": [
-        "4h",
-        "1d"
-      ],
-      "score_gate_no_confirms": 0.64,
-      "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+    "_agg": {}
   }
 }
