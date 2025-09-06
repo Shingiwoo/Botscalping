@@ -10,6 +10,12 @@ from aggregators.sr_features import sr_features_from_signals, sr_reason_weights_
 from signal_engine.aggregator import aggregate as agg_signal, build_features_from_modules
 from signal_engine.types import Side
 from indicators.sr_utils import htf_trend_ok_multi
+try:
+    from logger.reject_logger import log_reject as _log_reject
+except Exception:
+    def _log_reject(symbol: str, step: int, score: float, strength: str | None, reasons: dict | None, extras: list | None = None) -> None:
+        # Fallback no-op if logger not available
+        return
 
 # --- helpers (top-level util) ---
 _SR_SERVICE: Optional[SRMTFService] = None
@@ -574,7 +580,7 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
                     reject["body_fail"] = True
                 if not _trend_ok(side_val):
                     reject["trend_fail"] = True
-                if entry_ok and (num_conf_q < require_confirms):
+                if (num_conf_q < require_confirms):
                     reject["other"].append(f"min_confirms_q<{require_confirms}")
                 evals.append({
                     "res": res,
@@ -599,6 +605,11 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
             # No entries – if strong-but-gated, log compact reject reasons when DEBUG_REASONS
             bar_index = max(0, len(df) - 1)
             if DEBUG_REASONS and (bar_index % max(1, REASON_EVERY_N) == 0):
+                # Optional soft penalties for ATR/BODY (analysis only; gate still decides)
+                fp = (coin_cfg.get("filter_penalty") or {}) if isinstance(coin_cfg.get("filter_penalty"), dict) else {}
+                atr_pen = float(fp.get("atr_penalty", 0.0))
+                body_pen = float(fp.get("body_penalty", 0.0))
+                max_pen = float(fp.get("max_penalty", atr_pen + body_pen))
                 for e in evals:
                     res = e["res"]
                     score = float(res.get("score", 0.0))
@@ -606,8 +617,17 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
                     used_gate = float(e["used_gate"])
                     if score >= used_gate and not e["entry_ok"]:
                         rj = e["reject"]
-                        flags = {k: int(v) for k, v in rj.items() if isinstance(v, bool)}
-                        print(f"[{symbol}] reject step={bar_index} score={score:.2f} strength={strength} reasons={flags} other={rj['other']}")
+                        # assessed score with soft penalty
+                        pen = 0.0
+                        if bool(rj.get("atr_fail")):
+                            pen += atr_pen
+                        if bool(rj.get("body_fail")):
+                            pen += body_pen
+                        if max_pen > 0:
+                            pen = min(pen, max_pen)
+                        assessed = max(0.0, score - pen)
+                        extras = [f"used_gate={used_gate:.3f}", f"assessed={assessed:.3f}"]
+                        _log_reject(str(symbol), int(bar_index), float(score), str(strength) if strength is not None else None, rj, extras)
 
             logging.getLogger(__name__).info(
                 f"[{symbol}] AGG NO-ENTRY rL={rL['score']:.3f}/{rL['strength']} rS={rS['score']:.3f}/{rS['strength']}"

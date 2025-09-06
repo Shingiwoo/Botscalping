@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "presets",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "properties": {
+      "_agg": {"type": "object"},
+      "aggregator": {"type": "object"},
+      "profiles": {"type": "object"}
+    },
+    "additionalProperties": true
+  }
+}
+

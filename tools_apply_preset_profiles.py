@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, argparse, os, sys
+import json, argparse, os, sys, random
 from copy import deepcopy
 from typing import Any, Dict
 
@@ -55,6 +55,19 @@ def main():
     ap.add_argument("--out", required=True, help="Output coin_config path")
     ap.add_argument("--force", action="store_true", help="Overwrite/merge into all symbols and allow overwrite of output file if exists.")
     args = ap.parse_args()
+    # Seed determinism if provided
+    seed_txt = os.getenv("BOT_SEED", "").strip()
+    if seed_txt:
+        try:
+            seed = int(seed_txt)
+            try:
+                import numpy as _np
+                _np.random.seed(seed)
+            except Exception:
+                pass
+            random.seed(seed)
+        except Exception:
+            pass
 
     # Safety: prevent accidental overwrite unless --force
     if os.path.exists(args.out) and not args.force:
@@ -65,8 +78,26 @@ def main():
             cfg = json.load(f)
     except Exception as e:
         raise SystemExit(f"[ERR] Gagal membaca coin_config: {e}")
+    # Validate coin_config against schema if available
+    try:
+        import jsonschema  # type: ignore
+        with open(os.path.join("schema","coin_config.schema.json"), "r", encoding="utf-8") as f:
+            schema = json.load(f)
+        jsonschema.validate(instance=cfg, schema=schema)  # type: ignore
+    except Exception:
+        pass
 
     agg_cfg, profile_agg = _load_preset_blocks(args.params, args.preset)
+    # Validate presets if possible
+    try:
+        import jsonschema  # type: ignore
+        with open(os.path.join("schema","presets.schema.json"), "r", encoding="utf-8") as f:
+            schema = json.load(f)
+        with open(args.params, "r", encoding="utf-8") as f:
+            root = json.load(f)
+        jsonschema.validate(instance=root, schema=schema)  # type: ignore
+    except Exception:
+        pass
     if not isinstance(agg_cfg, dict):
         agg_cfg = {}
     if not isinstance(profile_agg, dict):

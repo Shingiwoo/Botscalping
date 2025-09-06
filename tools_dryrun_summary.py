@@ -18,10 +18,41 @@ export USE_ML=1; export SCORE_THRESHOLD=1.2; export ML_RETRAIN_EVERY=5000
 """
 from __future__ import annotations
 import os, sys, time, argparse, json
+import random
 from typing import Any, Tuple, Dict, List
 import pandas as pd
 import numpy as np
 from optimizer.param_loader import load_params_from_csv, load_params_from_json
+
+
+def _seed_all_from_env() -> None:
+    seed_txt = os.getenv("BOT_SEED", "").strip()
+    if not seed_txt:
+        return
+    try:
+        seed = int(seed_txt)
+    except Exception:
+        return
+    try:
+        import numpy as _np
+        _np.random.seed(seed)
+    except Exception:
+        pass
+    random.seed(seed)
+
+
+def _validate_json_schema(doc: dict, schema_path: str, *, kind: str) -> None:
+    try:
+        import jsonschema  # type: ignore
+    except Exception:
+        # Best effort: skip if jsonschema not available
+        return
+    try:
+        with open(schema_path, "r", encoding="utf-8") as f:
+            schema = json.load(f)
+        jsonschema.validate(instance=doc, schema=schema)  # type: ignore
+    except Exception as e:
+        print(f"[WARN] {kind} schema validation failed: {e}")
 
 # pastikan bisa import modul project
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -224,6 +255,7 @@ def main():
     ap.add_argument("--debug-cfg", action="store_true", help="Tampilkan konfigurasi efektif yang dipakai engine")
     ap.add_argument("--force-exit-on-end", action="store_true", help="Paksa tutup posisi di bar terakhir agar trade tercatat")
     args = ap.parse_args()
+    _seed_all_from_env()
 
     # saran env untuk speed
     os.environ.setdefault("USE_ML", "1")
@@ -256,6 +288,11 @@ def main():
                 cfg = json.load(f)
         except Exception:
             cfg = {}
+        # Validate baseline coin_config
+        try:
+            _validate_json_schema(cfg, os.path.join("schema","coin_config.schema.json"), kind="coin_config")
+        except Exception:
+            pass
         sym_cfg = cfg.get(args.symbol.upper(), {})
         if args.trailing_step is not None:
             sym_cfg["trailing_step"] = float(args.trailing_step)
@@ -271,6 +308,11 @@ def main():
             if args.params_json and args.preset_key:
                 with open(args.params_json, "r") as f:
                     preset_all = json.load(f)
+                # Validate presets
+                try:
+                    _validate_json_schema(preset_all, os.path.join("schema","presets.schema.json"), kind="presets")
+                except Exception:
+                    pass
                 preset = preset_all.get(args.preset_key)
                 if isinstance(preset, dict):
                     # Prefer nested aggregator blocks

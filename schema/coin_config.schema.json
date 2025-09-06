@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "coin_config",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "properties": {
+      "min_atr_pct": {"type": "number"},
+      "max_atr_pct": {"type": "number"},
+      "max_body_atr": {"type": "number"},
+      "filters": {
+        "type": "object",
+        "properties": {
+          "atr": {"type": "boolean"},
+          "body": {"type": "boolean"},
+          "max_body_over_atr": {"type": "number"}
+        },
+        "additionalProperties": true
+      },
+      "_agg": {"type": "object"},
+      "profiles": {"type": "object"}
+    },
+    "additionalProperties": true
+  }
+}
+
