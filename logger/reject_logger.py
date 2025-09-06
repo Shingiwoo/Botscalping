@@ -2,7 +2,7 @@ from __future__ import annotations
 import csv
 import os
 from typing import Dict, Any, List, Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _ensure_dir(path: str) -> None:
@@ -34,7 +34,7 @@ def log_reject(symbol: str,
     _ensure_dir("logs")
     path = os.path.join("logs", f"rejects_{symbol.upper()}.csv")
     row = {
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
         "symbol": symbol.upper(),
         "step": int(step),
         "score": float(score),
@@ -61,4 +61,3 @@ def log_reject(symbol: str,
         if write_header:
             w.writeheader()
         w.writerow(row)
-
