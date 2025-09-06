@@ -192,11 +192,12 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
 
 # ===================== AGGREGATOR INTEGRATION =====================
 def _read_agg_from_cfg(coin_cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Ambil blok aggregator yang disuntikkan di coin_cfg['_agg'] (bila ada)."""
+    """Ambil blok aggregator dari coin_cfg['_agg'] bila ada.
+    Tidak lagi mewajibkan 'signal_weights' atau 'regime_bounds' karena default tersedia
+    pada jalur make_decision/aggregator. Jika kunci tersebut absen, nilai default akan dipakai.
+    """
     agg = (coin_cfg or {}).get("_agg")
-    if not agg:
-        return None
-    if "signal_weights" not in agg or "regime_bounds" not in agg:
+    if not isinstance(agg, dict) or not agg:
         return None
     return cast(Dict[str, Any], agg)
 
@@ -423,6 +424,14 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
             f_short = build_features_from_modules(df, "SHORT")
             rL = agg_signal(df, cast(Side, "LONG"), w, thresholds, regime_bounds, sr_penalty, htf_rules=htf_rules, features=f_long)
             rS = agg_signal(df, cast(Side, "SHORT"), w, thresholds, regime_bounds, sr_penalty, htf_rules=htf_rules, features=f_short)
+            import os as _os
+            if _os.getenv("DEBUG_AGG") == "1":
+                try:
+                    print(f"[AGG] rL ok={rL.get('ok')} score={rL.get('score'):.3f} strength={rL.get('strength')} reasons={rL.get('reasons')}")
+                    print(f"[AGG] rS ok={rS.get('ok')} score={rS.get('score'):.3f} strength={rS.get('strength')} reasons={rS.get('reasons')}")
+                except Exception:
+                    print(f"[AGG] rL={rL}")
+                    print(f"[AGG] rS={rS}")
             candidates = [r for r in (rL, rS) if r.get("ok")]
             if candidates:
                 best = max(candidates, key=lambda r: r.get("score", 0.0))

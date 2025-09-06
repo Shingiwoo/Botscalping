@@ -1,0 +1,10 @@
+{
+  "AGG_NO_ADAPT": {
+    "strength_thresholds": { "weak": 0.27, "fair": 0.53, "strong": 0.78 },
+    "score_gate": 0.55,
+    "sd_tol_pct": 2.0,
+    "vol_lookback": 20,
+    "vol_z_thr": 1.6,
+    "htf_rules": ["4h", "1d"]
+  }
+}

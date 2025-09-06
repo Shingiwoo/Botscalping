@@ -209,6 +209,7 @@ def main():
     ap.add_argument("--prefer", type=str, default="pf_then_wr", choices=["pf_then_wr","wr_then_pf"])
     ap.add_argument("--params-json", type=str, default=None, help="Path preset JSON.")
     ap.add_argument("--preset-key", type=str, default=None, help="Key preset, mis. ADAUSDT_15m")
+    ap.add_argument("--profile", default=None, help="Pilih profil coin_config.[SYMBOL].profiles.[name] untuk dioverlay (mis. aggressive)")
     # Tambahan baru: OOS split, Monte Carlo, dan debug config
     ap.add_argument("--oos-split", type=str, default=None, help="Tanggal pemisah OOS (YYYY-MM-DD)")
     ap.add_argument("--mc-runs", type=int, default=0, help="Jumlah Monte-Carlo block bootstrap runs (0=off)")
@@ -277,6 +278,23 @@ def main():
                     print(f"[{args.symbol.upper()}] Aggregator preset injected: keys={list(agg_block.keys())}")
         except Exception as e:
             print(f"[{args.symbol.upper()}] WARN cannot inject aggregator preset: {e}")
+        # Overlay profil kalau diminta, timpa subset kunci di level atas
+        try:
+            prof_name = (args.profile or "").strip().lower()
+            if prof_name and isinstance(sym_cfg.get("profiles"), dict):
+                prof = sym_cfg["profiles"].get(prof_name)
+                if isinstance(prof, dict):
+                    for k, v in prof.items():
+                        if k in (
+                            "filters","min_atr_pct","max_atr_pct","max_body_atr",
+                            "sl_atr_mult","sl_pct","be_trigger_pct",
+                            "trailing_trigger","trailing_step",
+                            "use_sr_filter","sr_near_pct","score_gate","use_htf_filter",
+                        ):
+                            sym_cfg[k] = v
+                    print(f"[{args.symbol.upper()}] Profile overlay applied: {prof_name}")
+        except Exception as e:
+            print(f"[{args.symbol.upper()}] WARN cannot apply profile overlay: {e}")
         cfg[args.symbol.upper()] = sym_cfg
         tmp_cfg_path = f"_tmp_{args.symbol.upper()}_cfg.json"
         with open(tmp_cfg_path, "w") as f:
@@ -284,6 +302,34 @@ def main():
         cfg_path = tmp_cfg_path
         if "score_threshold" in overrides:
             os.environ["SCORE_THRESHOLD"] = str(float(overrides["score_threshold"]))
+
+    # Terapkan overlay profil walau tanpa overrides lainnya
+    if args.profile:
+        try:
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+        sym = args.symbol.upper()
+        sym_cfg = cfg.get(sym, {})
+        prof_name = (args.profile or "").strip().lower()
+        if prof_name and isinstance(sym_cfg.get("profiles"), dict):
+            prof = sym_cfg["profiles"].get(prof_name)
+            if isinstance(prof, dict):
+                for k, v in prof.items():
+                    if k in (
+                        "filters","min_atr_pct","max_atr_pct","max_body_atr",
+                        "sl_atr_mult","sl_pct","be_trigger_pct",
+                        "trailing_trigger","trailing_step",
+                        "use_sr_filter","sr_near_pct","score_gate","use_htf_filter",
+                    ):
+                        sym_cfg[k] = v
+                cfg[sym] = sym_cfg
+                tmp_cfg_path = f"_tmp_{sym}_cfg.json"
+                with open(tmp_cfg_path, "w") as f:
+                    json.dump(cfg, f)
+                cfg_path = tmp_cfg_path
+                print(f"[{sym}] Profile overlay applied: {prof_name}")
 
     # Debug config efektif
     if args.debug_cfg:

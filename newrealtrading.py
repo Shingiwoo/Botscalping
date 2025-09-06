@@ -973,28 +973,42 @@ class CoinTrader:
             return 0.0
 
         try:
-            cid = f"x-{os.getenv('INSTANCE_ID', 'bot')}-{self.symbol}-{uuid4().hex[:8]}"
-            od = self.exec.market_entry(self.symbol, side_binance, qty, client_id=cid) if self.exec else {}
-            if not od or not od.get('orderId'):
-                return 0.0
-            fill_price = float(_to_float(od.get('avgPrice') or od.get('price') or price, price))
-            self.pos = Position(
-                side=side,
-                entry=fill_price,
-                qty=qty,
-                sl=sl,
-                trailing_sl=None,
-                entry_time=pd.Timestamp.utcnow(),
-                allow_trailing=False,
-            )
-            self._log(f"ENTRY {side} price={price} qty={qty:.6f}")
-            if sl is not None and self.exec:
-                assert self.pos.side is not None, "side None di fase entry — ini tak boleh terjadi"
-                side_str = cast(str, self.pos.side)
-                ok = self.exec.place_protective_sl_close_all(self.symbol, side_str, sl)
-                self._log(f"SL protect {'OK' if ok else 'FAIL'} @ {sl}")
+            # If running without execution client (dryrun), simulate entry locally
+            if not self.exec:
+                fill_price = float(price)
+                self.pos = Position(
+                    side=side,
+                    entry=fill_price,
+                    qty=qty,
+                    sl=sl,
+                    trailing_sl=None,
+                    entry_time=pd.Timestamp.utcnow(),
+                    allow_trailing=False,
+                )
+                self._log(f"ENTRY(SIM) {side} price={price} qty={qty:.6f}")
             else:
-                self._log("SKIP SL: sl=None (cek config/indikator)")
+                cid = f"x-{os.getenv('INSTANCE_ID', 'bot')}-{self.symbol}-{uuid4().hex[:8]}"
+                od = self.exec.market_entry(self.symbol, side_binance, qty, client_id=cid)
+                if not od or not od.get('orderId'):
+                    return 0.0
+                fill_price = float(_to_float(od.get('avgPrice') or od.get('price') or price, price))
+                self.pos = Position(
+                    side=side,
+                    entry=fill_price,
+                    qty=qty,
+                    sl=sl,
+                    trailing_sl=None,
+                    entry_time=pd.Timestamp.utcnow(),
+                    allow_trailing=False,
+                )
+                self._log(f"ENTRY {side} price={price} qty={qty:.6f}")
+                if sl is not None:
+                    assert self.pos.side is not None, "side None di fase entry — ini tak boleh terjadi"
+                    side_str = cast(str, self.pos.side)
+                    ok = self.exec.place_protective_sl_close_all(self.symbol, side_str, sl)
+                    self._log(f"SL protect {'OK' if ok else 'FAIL'} @ {sl}")
+                else:
+                    self._log("SKIP SL: sl=None (cek config/indikator)")
             # Base strength legacy removed; rely on ML strength for mode selection
             b_s = 0.0
             m_s = ml_strength(up_prob, self.pos.side)
@@ -1358,15 +1372,16 @@ class TradingManager:
                 time.sleep(2.0)
 
     # Hook: implement loop fetch + dispatch ke trader
-    def run_once(self, data_map: Dict[str, pd.DataFrame], _balances_unused=None):
-        step_available = 0.0
+    def run_once(self, data_map: Dict[str, pd.DataFrame], balances: Optional[Dict[str, float]] = None):
+        # Default available balance comes from execution client (if any)
+        default_available = 0.0
         any_trader = next(iter(self.traders.values()))
         exec_client = getattr(any_trader, "exec", None)
         if exec_client is not None:
             try:
-                step_available = exec_client.get_available_balance()
+                default_available = exec_client.get_available_balance()
             except Exception:
-                step_available = 0.0
+                default_available = 0.0
         for sym in self.symbols:
             trader = self.traders.get(sym)
             df = data_map.get(sym)
@@ -1374,11 +1389,15 @@ class TradingManager:
                 continue
             try:
                 self._rehydrate_from_exchange(trader)
-                used_margin = trader.check_trading_signals(df, step_available)
+                available_for_sym = float(balances.get(sym, default_available)) if isinstance(balances, dict) else default_available
+                used_margin = trader.check_trading_signals(df, available_for_sym)
                 if used_margin and used_margin > 0:
-                    before = step_available
-                    step_available = max(0.0, step_available - used_margin)
-                    print(f"[{sym}] used_margin={used_margin:.4f} balance_before={before:.4f} -> after={step_available:.4f}")
+                    # Only track and print if we had a notion of available balance
+                    before = available_for_sym
+                    after = max(0.0, before - used_margin)
+                    if isinstance(balances, dict):
+                        balances[sym] = after
+                    print(f"[{sym}] used_margin={used_margin:.4f} balance_before={before:.4f} -> after={after:.4f}")
             except Exception as e:
                 print(f"[{sym}] error: {e}")
                 continue
