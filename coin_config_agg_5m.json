@@ -138,26 +138,50 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0022,
-        "max_atr_pct": 0.018,
-        "max_body_atr": 1.5,
+        "min_atr_pct": 0.003,
+        "max_atr_pct": 0.02,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.4,
+        "sl_atr_mult": 1.35,
         "sl_pct": 0.008,
-        "be_trigger_pct": 0.007,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1
       }
     },
-    "_agg": {}
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    }
   },
   "ALGOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -244,26 +268,50 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0022,
+        "min_atr_pct": 0.003,
         "max_atr_pct": 0.02,
-        "max_body_atr": 1.5,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.4,
+        "sl_atr_mult": 1.35,
         "sl_pct": 0.009,
-        "be_trigger_pct": 0.007,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1
       }
     },
-    "_agg": {}
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    }
   },
   "DOGEUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -361,26 +409,50 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0022,
-        "max_atr_pct": 0.022,
-        "max_body_atr": 1.5,
+        "min_atr_pct": 0.003,
+        "max_atr_pct": 0.02,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.4,
+        "sl_atr_mult": 1.35,
         "sl_pct": 0.01,
-        "be_trigger_pct": 0.007,
-        "trailing_trigger": 0.008,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1
       }
     },
-    "_agg": {}
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    }
   },
   "DOTUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -478,26 +550,50 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0022,
+        "min_atr_pct": 0.003,
         "max_atr_pct": 0.02,
-        "max_body_atr": 1.5,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.4,
+        "sl_atr_mult": 1.35,
         "sl_pct": 0.009,
-        "be_trigger_pct": 0.007,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1
       }
     },
-    "_agg": {}
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    }
   },
   "SYMBOL_DEFAULTS": {
     "adopt_manual_positions": 0,
@@ -523,16 +619,48 @@
       "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     },
-    "_agg": {},
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    },
     "profiles": {
       "aggressive": {
-        "max_body_atr": 1.5,
-        "min_atr_pct": 0.0022,
+        "min_atr_pct": 0.003,
+        "max_atr_pct": 0.02,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
-        }
+          "max_body_over_atr": 1.35
+        },
+        "sl_atr_mult": 1.35,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
+        "use_sr_filter": true,
+        "sr_near_pct": 0.7,
+        "use_htf_filter": 1
       }
     }
   },
@@ -600,16 +728,48 @@
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
     "use_htf_filter": 1,
-    "_agg": {},
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    },
     "profiles": {
       "aggressive": {
-        "max_body_atr": 1.5,
-        "min_atr_pct": 0.0022,
+        "min_atr_pct": 0.003,
+        "max_atr_pct": 0.02,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
-        }
+          "max_body_over_atr": 1.35
+        },
+        "sl_atr_mult": 1.35,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
+        "use_sr_filter": true,
+        "sr_near_pct": 0.7,
+        "use_htf_filter": 1
       }
     }
   },
@@ -698,26 +858,50 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0022,
-        "max_atr_pct": 0.018,
-        "max_body_atr": 1.5,
+        "min_atr_pct": 0.003,
+        "max_atr_pct": 0.02,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.4,
+        "sl_atr_mult": 1.35,
         "sl_pct": 0.008,
-        "be_trigger_pct": 0.007,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1
       }
     },
-    "_agg": {}
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    }
   },
   "BTCUSDT": {
     "SLIPPAGE_PCT": 0.0008,
@@ -822,26 +1006,50 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0022,
-        "max_atr_pct": 0.03,
-        "max_body_atr": 1.5,
+        "min_atr_pct": 0.003,
+        "max_atr_pct": 0.02,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.4,
+        "sl_atr_mult": 1.35,
         "sl_pct": 0.006,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.006,
-        "trailing_step": 0.003,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1
       }
     },
-    "_agg": {}
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    }
   },
   "ETHUSDT": {
     "SLIPPAGE_PCT": 0.001,
@@ -927,25 +1135,49 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0022,
-        "max_atr_pct": 0.035,
-        "max_body_atr": 1.5,
+        "min_atr_pct": 0.003,
+        "max_atr_pct": 0.02,
+        "max_body_atr": 1.35,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.4,
+        "sl_atr_mult": 1.35,
         "sl_pct": 0.007,
-        "be_trigger_pct": 0.006,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.003,
+        "be_trigger_pct": 0.0035,
+        "trailing_trigger": 0.0065,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1
       }
     },
-    "_agg": {}
+    "_agg": {
+      "htf_rules": [
+        "1h",
+        "4h"
+      ],
+      "strength_thresholds": {
+        "weak": 0.27,
+        "fair": 0.53,
+        "strong": 0.78
+      },
+      "score_gate": 0.57,
+      "score_gate_no_confirms": 0.7,
+      "no_confirms_require": [
+        "adx",
+        "width_atr",
+        "body_atr"
+      ],
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
+      "vol_lookback": 20,
+      "vol_z_thr": 1.8,
+      "sd_tol_pct": 1.9,
+      "min_strength": "cukup",
+      "min_strength_no_confirms": "kuat"
+    }
   }
 }
