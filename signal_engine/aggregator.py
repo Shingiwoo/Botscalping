@@ -330,15 +330,13 @@ def aggregate(
             min_confirms = int(_min_c)
         except Exception:
             min_confirms = None
-        # Demote bila confirms kurang dari min_confirms (termasuk 0),
-        # kecuali caller menyediakan gate khusus no-confirms untuk mengizinkan tanpa demosi.
-        if isinstance(min_confirms, int) and (confirms < min_confirms):
-            # Hard demotion bila konfirmasi kurang: maksimal "lemah"
+        # Demote hanya bila 0 < confirms < min_confirms (kasus confirms==0 ditangani oleh gate_no_confirms)
+        if isinstance(min_confirms, int) and (confirms > 0) and (confirms < min_confirms):
             if strength == "kuat":
                 strength = "cukup"
-            if strength == "cukup":
+            elif strength == "cukup":
                 strength = "lemah"
-            # Clamp skor agar tidak melompat kembali di consumer downstream
+            # Clamp score ke bawah batas fair untuk menghindari promosi ulang downstream
             th_map = thresholds.get("strength_thresholds", {"weak": 0.25, "fair": 0.50, "strong": 0.75})
             fair = float(th_map.get("fair", 0.50))
             if score >= fair:

@@ -1,5 +1,5 @@
 import os, json, logging
-from typing import Dict, Any, Tuple, Optional, Union, Any, List, cast
+from typing import Dict, Any, Tuple, Optional, Union, Any, List, cast, Mapping
 
 import numpy as np
 import pandas as pd
@@ -9,6 +9,7 @@ from indicators.srmtf.sr_service import SRMTFService
 from aggregators.sr_features import sr_features_from_signals, sr_reason_weights_default
 from signal_engine.aggregator import aggregate as agg_signal, build_features_from_modules
 from signal_engine.types import Side
+from indicators.sr_utils import htf_trend_ok_multi
 
 # --- helpers (top-level util) ---
 _SR_SERVICE: Optional[SRMTFService] = None
@@ -36,6 +37,8 @@ def as_scalar(x: Any) -> float:
         return 0.0
 
 SAFE_EPS = float(os.getenv("SAFE_EPS", "1e-9"))
+DEBUG_REASONS = bool(int(os.getenv("DEBUG_REASONS", "0")))
+REASON_EVERY_N = int(os.getenv("REASON_EVERY_N", "20"))
 
 
 def to_scalar(x: Optional[Any], *, how: str = "last", default: float = 0.0) -> float:
@@ -484,18 +487,131 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
                 except Exception:
                     print(f"[AGG] rL={rL}")
                     print(f"[AGG] rS={rS}")
-            candidates = [r for r in (rL, rS) if r.get("ok")]
-            if candidates:
-                best = max(candidates, key=lambda r: r.get("score", 0.0))
-                side = cast(Optional[str], best.get("side"))
+            # Enforce minimal quantitative confirms after aggregator gate
+            def _num_confirms_q(bd: Mapping[str, Any] | None) -> int:
+                if not isinstance(bd, dict):
+                    return 0
+                adx_ok = "adx" in bd
+                width_atr_ok = "width_atr" in bd
+                body_atr_ok = "body_atr" in bd
+                vol_ok = ("vol_confirm" in bd)
+                return int(adx_ok) + int(width_atr_ok) + int(body_atr_ok) + int(vol_ok)
+
+            # Determine TF from sr_mtf.chart_tf (fallback 15m)
+            tf_txt = str(((coin_cfg.get("sr_mtf") or {}).get("chart_tf", "15m")).lower())
+            require_confirms = 2 if ("5m" in tf_txt or "5min" in tf_txt) else 1
+
+            def _used_gate_for(confirms: int) -> float:
+                base_gate = float(thresholds.get("score_gate", 0.55))
+                gate_no_conf = thresholds.get("score_gate_no_confirms", None)
+                if confirms == 0 and gate_no_conf is not None:
+                    return float(gate_no_conf)
+                return base_gate
+
+            def _trend_ok(side: str) -> bool:
+                mode = str(coin_cfg.get("trend_filter_mode", "")).lower()
+                if mode == "ema200":
+                    try:
+                        ema200 = df["close"].ewm(span=200, adjust=False).mean().iloc[-1]
+                        price = float(df["close"].iloc[-1])
+                        return (price >= float(ema200)) if side == "LONG" else (price <= float(ema200))
+                    except Exception:
+                        return True
+                return True
+
+            def _htf_ok(side: str) -> bool:
+                use_htf = bool(int(coin_cfg.get("use_htf_filter", coin_cfg.get("use_htf", 0))))
+                if not use_htf:
+                    return True
+                try:
+                    rules = tuple(agg_cfg.get("htf_rules", ("1h","4h")))
+                except Exception:
+                    rules = ("1h","4h")
+                return bool(htf_trend_ok_multi(side, df, rules=rules))
+
+            def _sr_near_fail(bd: Mapping[str, Any] | None) -> bool:
+                if not isinstance(bd, dict):
+                    return False
+                near_pen = ("penalty_near_opposite_sr" in bd)
+                has_break = any(k in bd for k in ("sr_breakout","sr_reject"))
+                return bool(near_pen and not has_break)
+
+            def _atr_body_flags() -> tuple[bool, bool]:
+                atr_ok, body_ok, _info = apply_filters(df.iloc[-1], coin_cfg)
+                return bool(atr_ok), bool(body_ok)
+
+            # Evaluate both sides for logging and final decision
+            evals = []
+            for res in (rL, rS):
+                side_val = cast(Optional[str], res.get("side")) or ("LONG" if res is rL else "SHORT")
+                bd = res.get("breakdown", {}) or {}
+                confirms = int((res.get("context", {}) or {}).get("confirms", _num_confirms_q(bd)))
+                used_gate = _used_gate_for(confirms)
+                num_conf_q = _num_confirms_q(bd)
+                entry_ok = bool(res.get("ok"))
+                # Enforce quantitative confirms minimum after aggregator gate
+                if entry_ok and (num_conf_q < require_confirms):
+                    entry_ok = False
+                # Build reject reasons
+                reject = {
+                    "htf_fail": False,
+                    "sr_near_fail": False,
+                    "atr_fail": False,
+                    "body_fail": False,
+                    "cooldown": False,
+                    "trend_fail": False,
+                    "min_notional_fail": False,
+                    "other": []
+                }
+                if not _htf_ok(side_val):
+                    reject["htf_fail"] = True
+                if _sr_near_fail(bd):
+                    reject["sr_near_fail"] = True
+                atr_ok, body_ok = _atr_body_flags()
+                if not atr_ok:
+                    reject["atr_fail"] = True
+                if not body_ok:
+                    reject["body_fail"] = True
+                if not _trend_ok(side_val):
+                    reject["trend_fail"] = True
+                if entry_ok and (num_conf_q < require_confirms):
+                    reject["other"].append(f"min_confirms_q<{require_confirms}")
+                evals.append({
+                    "res": res,
+                    "side": side_val,
+                    "used_gate": used_gate,
+                    "num_conf_q": num_conf_q,
+                    "entry_ok": entry_ok,
+                    "reject": reject,
+                })
+
+            # Prefer the better side by score among those that satisfy entry_ok
+            ok_evals = [e for e in evals if e["entry_ok"]]
+            if ok_evals:
+                best_eval = max(ok_evals, key=lambda e: float(e["res"].get("score", 0.0)))
+                best = best_eval["res"]
+                side = cast(Optional[str], best_eval.get("side"))
                 logging.getLogger(__name__).info(
                     f"[{symbol}] AGG OK side={side} score={best['score']:.3f} strength={best['strength']} reasons={best.get('reasons')}"
                 )
                 return side, [{"source": "aggregator", "score": float(best.get("score", 0.0)), "strength": best.get("strength")}]
-            else:
-                logging.getLogger(__name__).info(
-                    f"[{symbol}] AGG NO-ENTRY rL={rL['score']:.3f}/{rL['strength']} rS={rS['score']:.3f}/{rS['strength']}"
-                )
+
+            # No entries – if strong-but-gated, log compact reject reasons when DEBUG_REASONS
+            bar_index = max(0, len(df) - 1)
+            if DEBUG_REASONS and (bar_index % max(1, REASON_EVERY_N) == 0):
+                for e in evals:
+                    res = e["res"]
+                    score = float(res.get("score", 0.0))
+                    strength = res.get("strength")
+                    used_gate = float(e["used_gate"])
+                    if score >= used_gate and not e["entry_ok"]:
+                        rj = e["reject"]
+                        flags = {k: int(v) for k, v in rj.items() if isinstance(v, bool)}
+                        print(f"[{symbol}] reject step={bar_index} score={score:.2f} strength={strength} reasons={flags} other={rj['other']}")
+
+            logging.getLogger(__name__).info(
+                f"[{symbol}] AGG NO-ENTRY rL={rL['score']:.3f}/{rL['strength']} rS={rS['score']:.3f}/{rS['strength']}"
+            )
         except Exception as e:
             logging.getLogger(__name__).warning(f"[{symbol}] aggregator path error: {e}. Fallback to base rule.")
 

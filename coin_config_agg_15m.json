@@ -146,11 +146,11 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
+        "sl_atr_mult": 1.8,
         "sl_pct": 0.008,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
@@ -163,21 +163,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -276,11 +276,11 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
+        "sl_atr_mult": 1.8,
         "sl_pct": 0.009,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
@@ -293,21 +293,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -417,11 +417,11 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
+        "sl_atr_mult": 1.8,
         "sl_pct": 0.01,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
@@ -434,21 +434,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -558,11 +558,11 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
+        "sl_atr_mult": 1.8,
         "sl_pct": 0.009,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
@@ -575,21 +575,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -625,21 +625,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -654,10 +654,10 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "sl_atr_mult": 1.8,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
@@ -734,21 +734,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -763,10 +763,10 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "sl_atr_mult": 1.8,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
@@ -866,11 +866,11 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
+        "sl_atr_mult": 1.8,
         "sl_pct": 0.008,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
@@ -883,21 +883,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -1014,11 +1014,11 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
+        "sl_atr_mult": 1.8,
         "sl_pct": 0.006,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
@@ -1031,21 +1031,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
@@ -1143,11 +1143,11 @@
           "body": true,
           "max_body_over_atr": 1.45
         },
-        "sl_atr_mult": 1.7,
+        "sl_atr_mult": 1.8,
         "sl_pct": 0.007,
-        "be_trigger_pct": 0.005,
-        "trailing_trigger": 0.007,
-        "trailing_step": 0.0035,
+        "be_trigger_pct": 0.0045,
+        "trailing_trigger": 0.006,
+        "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
@@ -1160,21 +1160,21 @@
         "1d"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
+        "weak": 0.28,
+        "fair": 0.55,
         "strong": 0.78
       },
-      "score_gate": 0.55,
-      "score_gate_no_confirms": 0.64,
+      "score_gate": 0.58,
+      "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
-      "confirm_bonus_per": 0.05,
-      "confirm_bonus_max": 0.1,
+      "confirm_bonus_per": 0.04,
+      "confirm_bonus_max": 0.08,
       "vol_lookback": 20,
-      "vol_z_thr": 1.6,
+      "vol_z_thr": 1.8,
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"

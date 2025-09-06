@@ -146,15 +146,16 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "sl_pct": 0.008,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_trigger_r": 0.35
       }
     },
     "_agg": {
@@ -163,22 +164,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
@@ -276,15 +277,16 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "sl_pct": 0.009,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_trigger_r": 0.35
       }
     },
     "_agg": {
@@ -293,22 +295,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
@@ -417,15 +419,16 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "sl_pct": 0.01,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_trigger_r": 0.35
       }
     },
     "_agg": {
@@ -434,22 +437,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
@@ -558,15 +561,16 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "sl_pct": 0.009,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_trigger_r": 0.35
       }
     },
     "_agg": {
@@ -575,22 +579,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
@@ -625,22 +629,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     },
@@ -654,10 +658,11 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "be_trigger_r": 0.35,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
@@ -734,22 +739,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     },
@@ -763,10 +768,11 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "be_trigger_r": 0.35,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
@@ -866,15 +872,16 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "sl_pct": 0.008,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_trigger_r": 0.35
       }
     },
     "_agg": {
@@ -883,22 +890,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
@@ -1014,15 +1021,16 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "sl_pct": 0.006,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_trigger_r": 0.35
       }
     },
     "_agg": {
@@ -1031,22 +1039,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
@@ -1143,15 +1151,16 @@
           "body": true,
           "max_body_over_atr": 1.35
         },
-        "sl_atr_mult": 1.35,
+        "sl_atr_mult": 1.5,
         "sl_pct": 0.007,
         "be_trigger_pct": 0.0035,
-        "trailing_trigger": 0.0065,
-        "trailing_step": 0.0032,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_trigger_r": 0.35
       }
     },
     "_agg": {
@@ -1160,22 +1169,22 @@
         "4h"
       ],
       "strength_thresholds": {
-        "weak": 0.27,
-        "fair": 0.53,
-        "strong": 0.78
+        "weak": 0.3,
+        "fair": 0.56,
+        "strong": 0.8
       },
-      "score_gate": 0.57,
-      "score_gate_no_confirms": 0.7,
+      "score_gate": 0.6,
+      "score_gate_no_confirms": 0.74,
       "no_confirms_require": [
         "adx",
         "width_atr",
         "body_atr"
       ],
       "confirm_bonus_per": 0.04,
-      "confirm_bonus_max": 0.08,
+      "confirm_bonus_max": 0.1,
       "vol_lookback": 20,
       "vol_z_thr": 1.8,
-      "sd_tol_pct": 1.9,
+      "sd_tol_pct": 1.7,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
