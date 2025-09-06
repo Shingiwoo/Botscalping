@@ -138,13 +138,13 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0035,
+        "min_atr_pct": 0.0032,
         "max_atr_pct": 0.018,
-        "max_body_atr": 1.45,
+        "max_body_atr": 1.55,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.45
+          "max_body_over_atr": 1.55
         },
         "sl_atr_mult": 1.4,
         "sl_pct": 0.008,
@@ -244,13 +244,13 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.003,
+        "min_atr_pct": 0.0032,
         "max_atr_pct": 0.02,
-        "max_body_atr": 1.45,
+        "max_body_atr": 1.55,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.45
+          "max_body_over_atr": 1.55
         },
         "sl_atr_mult": 1.4,
         "sl_pct": 0.009,
@@ -361,13 +361,13 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0035,
+        "min_atr_pct": 0.0032,
         "max_atr_pct": 0.022,
-        "max_body_atr": 1.5,
+        "max_body_atr": 1.55,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.5
+          "max_body_over_atr": 1.55
         },
         "sl_atr_mult": 1.4,
         "sl_pct": 0.01,
@@ -478,13 +478,13 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.003,
+        "min_atr_pct": 0.0032,
         "max_atr_pct": 0.02,
-        "max_body_atr": 1.45,
+        "max_body_atr": 1.55,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.45
+          "max_body_over_atr": 1.55
         },
         "sl_atr_mult": 1.4,
         "sl_pct": 0.009,
@@ -523,7 +523,18 @@
       "weak_if_atr_pct_lt": 0.008,
       "weak_if_roi_future_lt": 0.15
     },
-    "_agg": {}
+    "_agg": {},
+    "profiles": {
+      "aggressive": {
+        "max_body_atr": 1.55,
+        "min_atr_pct": 0.0032,
+        "filters": {
+          "atr": true,
+          "body": true,
+          "max_body_over_atr": 1.55
+        }
+      }
+    }
   },
   "TURBOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -589,7 +600,18 @@
     "trend_filter_mode": "ema200",
     "use_breakeven": 1,
     "use_htf_filter": 1,
-    "_agg": {}
+    "_agg": {},
+    "profiles": {
+      "aggressive": {
+        "max_body_atr": 1.55,
+        "min_atr_pct": 0.0032,
+        "filters": {
+          "atr": true,
+          "body": true,
+          "max_body_over_atr": 1.55
+        }
+      }
+    }
   },
   "XRPUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -676,13 +698,13 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.0035,
+        "min_atr_pct": 0.0032,
         "max_atr_pct": 0.018,
-        "max_body_atr": 1.45,
+        "max_body_atr": 1.55,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.45
+          "max_body_over_atr": 1.55
         },
         "sl_atr_mult": 1.4,
         "sl_pct": 0.008,
@@ -800,13 +822,13 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.001,
+        "min_atr_pct": 0.0032,
         "max_atr_pct": 0.03,
-        "max_body_atr": 1.45,
+        "max_body_atr": 1.55,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.45
+          "max_body_over_atr": 1.55
         },
         "sl_atr_mult": 1.4,
         "sl_pct": 0.006,
@@ -905,13 +927,13 @@
         "use_htf_filter": 1
       },
       "aggressive": {
-        "min_atr_pct": 0.002,
+        "min_atr_pct": 0.0032,
         "max_atr_pct": 0.035,
-        "max_body_atr": 1.45,
+        "max_body_atr": 1.55,
         "filters": {
           "atr": true,
           "body": true,
-          "max_body_over_atr": 1.45
+          "max_body_over_atr": 1.55
         },
         "sl_atr_mult": 1.4,
         "sl_pct": 0.007,
