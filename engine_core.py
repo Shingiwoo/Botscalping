@@ -133,11 +133,17 @@ def meets_min_notional(sym_cfg: Dict[str, Any], price: float, qty: float) -> boo
 # -----------------------------------------------------
 # Config loader & merger
 # -----------------------------------------------------
+_LAST_COIN_CONFIG: Dict[str, Any] = {}
+
 def load_coin_config(path: str) -> Dict[str, Any]:
+    global _LAST_COIN_CONFIG
     try:
         with open(path, "r") as f:
-            return json.load(f)
+            cfg = json.load(f)
+            _LAST_COIN_CONFIG = cfg if isinstance(cfg, dict) else {}
+            return cfg
     except Exception:
+        _LAST_COIN_CONFIG = {}
         return {}
 
 def merge_config(symbol: str, base_cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -191,20 +197,21 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
 # Legacy base-signal logic dihapus. Sumber kebenaran sinyal sekarang dari aggregator.
 
 # ===================== AGGREGATOR INTEGRATION =====================
+# Defaults are conservative but aligned with requested baseline
 DEFAULT_AGG: Dict[str, Any] = {
     "signal_weights": {},
     "strength_thresholds": {"weak": 0.28, "fair": 0.55, "strong": 0.78},
-    "score_gate": 0.55,
+    "score_gate": 0.56,
     "min_strength": "cukup",
-    "score_gate_no_confirms": 0.62,
+    "score_gate_no_confirms": 0.66,
     "min_strength_no_confirms": "kuat",
-    "no_confirms_require": [],
+    "no_confirms_require": ["adx", "width_atr", "body_atr"],
     "confirm_bonus_per": 0.0,
     "confirm_bonus_max": 0.0,
     "vol_lookback": 20,
-    "vol_z_thr": 1.8,
+    "vol_z_thr": 1.7,
     "sd_tol_pct": 2.0,
-    "htf_rules": [],
+    "htf_rules": ["4h", "1d"],
 }
 
 
@@ -410,12 +417,34 @@ def _merge_signal_params(base: Dict[str, Any], coin_cfg: Dict[str, Any]) -> Tupl
     sr_penalty = dict(base["sr_penalty"]) | dict(scfg.get("sr_penalty", coin_cfg.get("sr_penalty", {})))
     return weights, thresholds, regime_bounds, sr_penalty
 
+_WARNED_EMPTY_AGG: set[str] = set()
+
 def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: float | None) -> Tuple[Optional[str], List[dict]]:
     # Pastikan indikator dasar tersedia sesuai parameter
     df = ensure_base_indicators(df.copy(), coin_cfg or {})
 
     # 1) Jalur AGGREGATOR (utama jika preset tersedia)
     agg_cfg = _read_agg_from_cfg(coin_cfg)
+    if agg_cfg is None:
+        # Guard: fallback to SYMBOL_DEFAULTS._agg if available
+        base_def: Dict[str, Any] = {}
+        try:
+            base_def = (_LAST_COIN_CONFIG or {}).get("SYMBOL_DEFAULTS", {}) or {}
+            agg_cfg = _read_agg_from_cfg(base_def)
+        except Exception:
+            agg_cfg = None
+        # If still missing, use conservative DEFAULT_AGG
+        if agg_cfg is None:
+            agg_cfg = dict(DEFAULT_AGG)
+        # Warn once for auditability
+        if symbol not in _WARNED_EMPTY_AGG:
+            _WARNED_EMPTY_AGG.add(symbol)
+            src = "SYMBOL_DEFAULTS" if isinstance(base_def, dict) and isinstance(base_def.get("_agg"), dict) else "DEFAULT_AGG"
+            try:
+                sym_txt = str(symbol)
+            except Exception:
+                sym_txt = "?"
+            print(f"[WARN] {sym_txt}: _agg kosong; fallback ke {src}")
     if agg_cfg is not None:
         try:
             w = dict(agg_cfg.get("signal_weights", {}))

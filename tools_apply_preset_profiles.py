@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-import json, argparse, sys
+import json, argparse, os, sys
+from copy import deepcopy
+from typing import Any, Dict
+
+
+def _deep_update(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
+    for k, v in (src or {}).items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _deep_update(dst[k], v)
+        else:
+            dst[k] = deepcopy(v)
+    return dst
+
 
 AGG_KEYS = {
     "signal_weights","strength_thresholds","regime_bounds","weight_scale",
@@ -9,79 +21,90 @@ AGG_KEYS = {
     "no_confirms_require","confirm_bonus_per","confirm_bonus_max"
 }
 
-def load_agg(params_path: str, preset_key: str) -> dict:
-    with open(params_path, "r") as f:
+
+def _load_preset_blocks(params_path: str, preset_key: str) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    with open(params_path, "r", encoding="utf-8") as f:
         root = json.load(f)
-    preset = root.get(preset_key, {})
-    if not isinstance(preset, dict) or not preset:
+    preset = root.get(preset_key)
+    if not isinstance(preset, dict):
         raise SystemExit(f"[ERR] Preset '{preset_key}' tidak ditemukan di {params_path}")
-    return {k: preset[k] for k in AGG_KEYS if k in preset}
+    # Aggregator block
+    agg_block = {}
+    if isinstance(preset.get("_agg"), dict):
+        agg_block = preset["_agg"]
+    elif isinstance(preset.get("aggregator"), dict):
+        agg_block = preset["aggregator"]
+    else:
+        # Fallback: collect known keys at this level (legacy style)
+        agg_block = {k: preset[k] for k in AGG_KEYS if k in preset}
+    # profiles.aggressive overlay
+    profile_agg = {}
+    if isinstance(preset.get("profiles"), dict) and isinstance(preset["profiles"].get("aggressive"), dict):
+        profile_agg = preset["profiles"]["aggressive"]
+    elif isinstance(preset.get("profiles.aggressive"), dict):
+        profile_agg = preset["profiles.aggressive"]
+    return agg_block or {}, profile_agg or {}
+
 
 def main():
-    ap = argparse.ArgumentParser(description="Inject _agg preset and optionally tune aggressive profile thresholds.")
+    ap = argparse.ArgumentParser(description="Apply preset aggregator + profiles.aggressive overlay to all symbols in coin_config.")
     ap.add_argument("--coin-config", required=True, help="Path input coin_config.json")
-    # Accept aliases for robustness
+    # Aliases for backward compatibility
     ap.add_argument("--params", "--params-json", dest="params", required=True, help="Path presets JSON (e.g. presets/scalping_params.json)")
     ap.add_argument("--preset", "--preset-key", dest="preset", required=True, help="Preset name (e.g. AGGRESSIVE_5m / AGGRESSIVE_15m)")
     ap.add_argument("--out", required=True, help="Output coin_config path")
-    ap.add_argument("--force", action="store_true", help="Timpa _agg jika sudah ada.")
-    ap.add_argument("--no-profile-tune", action="store_true", help="Jangan ubah profiles.aggressive thresholds")
+    ap.add_argument("--force", action="store_true", help="Overwrite/merge into all symbols and allow overwrite of output file if exists.")
     args = ap.parse_args()
 
-    agg = load_agg(args.params, args.preset)
+    # Safety: prevent accidental overwrite unless --force
+    if os.path.exists(args.out) and not args.force:
+        raise SystemExit(f"[ERR] Output exists: {args.out}. Gunakan --force untuk menimpa.")
 
-    with open(args.coin_config, "r") as f:
-        cfg = json.load(f)
+    try:
+        with open(args.coin_config, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception as e:
+        raise SystemExit(f"[ERR] Gagal membaca coin_config: {e}")
+
+    agg_cfg, profile_agg = _load_preset_blocks(args.params, args.preset)
+    if not isinstance(agg_cfg, dict):
+        agg_cfg = {}
+    if not isinstance(profile_agg, dict):
+        profile_agg = {}
 
     updated = 0
-    # Determine profile tuning target based on preset name
-    p = str(args.preset).strip().lower()
-    is_5m = "5m" in p
-    is_15m = "15m" in p
-    do_tune = not bool(args.no_profile_tune)
-
     for sym, sym_cfg in list(cfg.items()):
-        if sym.startswith("_"):
+        # Skip meta keys except SYMBOL_DEFAULTS (should be processed)
+        if sym.startswith("_") and sym != "SYMBOL_DEFAULTS":
             continue
         if not isinstance(sym_cfg, dict):
             continue
-        if (not args.force) and ("_agg" in sym_cfg):
-            # lewati yang sudah punya _agg jika tidak force
+        # Determine whether to apply when not forcing
+        should_apply = True
+        if not args.force:
+            has_agg = isinstance(sym_cfg.get("_agg"), dict) and bool(sym_cfg.get("_agg"))
+            has_prof = isinstance(((sym_cfg.get("profiles") or {}).get("aggressive") if isinstance(sym_cfg.get("profiles"), dict) else None), dict)
+            should_apply = (not has_agg) or (not has_prof)
+        if not should_apply:
             continue
-        sym_cfg["_agg"] = dict(agg)  # copy
-        # Optional: tune aggressive profile thresholds (body/ATR and min_atr_pct) for throughput
-        if do_tune and (is_5m or is_15m):
-            profiles = sym_cfg.get("profiles") or {}
-            if not isinstance(profiles, dict):
-                profiles = {}
-            aggr = profiles.get("aggressive") or {}
-            if not isinstance(aggr, dict):
-                aggr = {}
-            flt = aggr.get("filters") or {}
-            if not isinstance(flt, dict):
-                flt = {}
-            # Ensure filters toggles stay ON
-            flt["atr"], flt["body"] = True, True
-            if is_15m:
-                aggr["max_body_atr"] = 1.55
-                aggr["min_atr_pct"] = 0.0032
-                flt["max_body_over_atr"] = 1.55
-            elif is_5m:
-                aggr["max_body_atr"] = 1.50
-                aggr["min_atr_pct"] = 0.0022
-                flt["max_body_over_atr"] = 1.50
-            aggr["filters"] = flt
+        # Ensure and deep-merge _agg
+        sym_cfg.setdefault("_agg", {})
+        if isinstance(agg_cfg, dict) and agg_cfg:
+            _deep_update(sym_cfg["_agg"], agg_cfg)
+        # Ensure and deep-merge profiles.aggressive
+        if profile_agg:
+            profiles = sym_cfg.setdefault("profiles", {}) if isinstance(sym_cfg.get("profiles"), dict) else sym_cfg.setdefault("profiles", {})
+            aggr = profiles.setdefault("aggressive", {})
+            _deep_update(aggr, profile_agg)
             profiles["aggressive"] = aggr
             sym_cfg["profiles"] = profiles
         cfg[sym] = sym_cfg
         updated += 1
 
-    with open(args.out, "w") as f:
+    with open(args.out, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
-    print(f"[OK] Disuntik preset '{args.preset}' ke {updated} coin → {args.out}")
-    if do_tune and (is_5m or is_15m):
-        print(f"[OK] Tuning profiles.aggressive diterapkan untuk {'5m' if is_5m else '15m'} ke {updated} coin")
+    print(f"[OK] Preset '{args.preset}' merged into {updated} symbols → {args.out}")
 
 if __name__ == "__main__":
     main()

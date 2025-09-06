@@ -212,9 +212,11 @@ def main():
     ap.add_argument("--min-pf", type=float, default=2.0)
     ap.add_argument("--min-trades", type=int, default=20)
     ap.add_argument("--prefer", type=str, default="pf_then_wr", choices=["pf_then_wr","wr_then_pf"])
-    ap.add_argument("--params-json", type=str, default=None, help="Path preset JSON.")
-    ap.add_argument("--preset-key", type=str, default=None, help="Key preset, mis. ADAUSDT_15m")
-    ap.add_argument("--profile", default=None, help="Pilih profil coin_config.[SYMBOL].profiles.[name] untuk dioverlay (mis. aggressive)")
+    # Backward-compatible aliases
+    ap.add_argument("--params", "--params-json", dest="params_json", type=str, default=None, help="Path preset JSON.")
+    ap.add_argument("--preset", "--preset-key", dest="preset_key", type=str, default=None, help="Key preset, mis. AGGRESSIVE_15m")
+    ap.add_argument("--profile", default=None, choices=[None, "aggressive", "conservative"], help="Pilih profil coin_config.[SYMBOL].profiles.[name] untuk dioverlay")
+    ap.add_argument("--debug-interval", type=int, default=20, help="Interval bar untuk ringkasan DEBUG_REASONS (ketika DEBUG_REASONS=1)")
     # Tambahan baru: OOS split, Monte Carlo, dan debug config
     ap.add_argument("--oos-split", type=str, default=None, help="Tanggal pemisah OOS (YYYY-MM-DD)")
     ap.add_argument("--mc-runs", type=int, default=0, help="Jumlah Monte-Carlo block bootstrap runs (0=off)")
@@ -248,7 +250,7 @@ def main():
         )
 
     cfg_path = args.coin_config
-    if args.trailing_step is not None or args.trailing_trigger is not None or overrides:
+    if args.trailing_step is not None or args.trailing_trigger is not None or overrides or (args.params_json and args.preset_key) or args.profile:
         try:
             with open(args.coin_config, "r") as f:
                 cfg = json.load(f)
@@ -268,20 +270,32 @@ def main():
         try:
             if args.params_json and args.preset_key:
                 with open(args.params_json, "r") as f:
-                    preset_root = json.load(f)
-                preset_root = preset_root.get(args.preset_key, preset_root)
-                agg_keys = {
-                    "signal_weights","strength_thresholds","regime_bounds","weight_scale",
-                    "sr_penalty","sd_tol_pct","vol_lookback","vol_z_thr","score_gate",
-                    "htf_rules","htf_fallback_discount","weight_scale_nl","min_confirms",
-                    # key baru untuk gate adaptif & bonus konfirmasi
-                    "score_gate_no_confirms","min_strength","min_strength_no_confirms",
-                    "no_confirms_require","confirm_bonus_per","confirm_bonus_max"
-                }
-                agg_block = {k: preset_root[k] for k in agg_keys if k in preset_root}
-                if agg_block:
-                    sym_cfg["_agg"] = agg_block
-                    print(f"[{args.symbol.upper()}] Aggregator preset injected: keys={list(agg_block.keys())}")
+                    preset_all = json.load(f)
+                preset = preset_all.get(args.preset_key)
+                if isinstance(preset, dict):
+                    # Prefer nested aggregator blocks
+                    if isinstance(preset.get("_agg"), dict):
+                        sym_cfg["_agg"] = dict(preset["_agg"])  # shallow copy OK; engine fills defaults
+                    elif isinstance(preset.get("aggregator"), dict):
+                        sym_cfg["_agg"] = dict(preset["aggregator"])
+                    else:
+                        # Fallback: collect known keys at this level (legacy style)
+                        agg_keys = {
+                            "signal_weights","strength_thresholds","regime_bounds","weight_scale",
+                            "sr_penalty","sd_tol_pct","vol_lookback","vol_z_thr","score_gate",
+                            "htf_rules","htf_fallback_discount","weight_scale_nl","min_confirms",
+                            "score_gate_no_confirms","min_strength","min_strength_no_confirms",
+                            "no_confirms_require","confirm_bonus_per","confirm_bonus_max"
+                        }
+                        agg_block = {k: preset[k] for k in agg_keys if k in preset}
+                        if agg_block:
+                            sym_cfg["_agg"] = agg_block
+                    # Overlay profiles.aggressive if present in preset
+                    if isinstance(preset.get("profiles"), dict) and isinstance(preset["profiles"].get("aggressive"), dict):
+                        sym_cfg.setdefault("profiles", {}).setdefault("aggressive", {}).update(preset["profiles"]["aggressive"])
+                    elif isinstance(preset.get("profiles.aggressive"), dict):
+                        sym_cfg.setdefault("profiles", {}).setdefault("aggressive", {}).update(preset["profiles.aggressive"])
+                    print(f"[{args.symbol.upper()}] Aggregator/profile preset injected from {args.preset_key}")
         except Exception as e:
             print(f"[{args.symbol.upper()}] WARN cannot inject aggregator preset: {e}")
         # Overlay profil kalau diminta, timpa subset kunci di level atas
@@ -393,11 +407,47 @@ def main():
             "pnl_p5_p50_p95": list(np.percentile(pnls, [5, 50, 95])),
         }
 
+    # If DEBUG_REASONS=1, throttle noisy prints and provide our own periodic summary
+    dbg_reasons_env = os.getenv("DEBUG_REASONS", "0").strip()
+    throttle_debug = (dbg_reasons_env == "1")
+    if throttle_debug:
+        # Silence internal per-bar prints; we'll do periodic summaries below
+        os.environ["DEBUG_REASONS"] = "0"
     # Load data sekali untuk reuse pada OOS/MC
     df_full = pd.read_csv(args.csv)
 
     # 1) Baseline (FULL)
-    full_summary, full_trades = simulate_dryrun(df_full, args.symbol.upper(), cfg_path, args.steps, args.balance, force_exit_on_end=args.force_exit_on_end)
+    # Optionally print periodic debug during the run
+    if throttle_debug:
+        # Run with periodic prints by intercepting manager loop via smaller chunks
+        df_full_norm = _normalize_df(df_full.copy())
+        min_train = int(float(os.getenv("ML_MIN_TRAIN_BARS", "400")))
+        warmup = max(300, min_train + 10)
+        start_i = min(warmup, len(df_full_norm) - 1)
+        mgr = nrt.TradingManager(cfg_path, [args.symbol.upper()])
+        trader = mgr.traders[args.symbol.upper()]
+        trader._log = lambda *a, **k: None
+        steps = 0
+        last_print_i = -1
+        for i in range(start_i, min(len(df_full_norm), start_i + args.steps)):
+            data_map = {args.symbol.upper(): df_full_norm.iloc[: i + 1].copy()}
+            mgr.run_once(data_map, {args.symbol.upper(): args.balance})
+            steps += 1
+            if steps % max(1, args.debug_interval) == 0:
+                rs = getattr(trader, "last_sr_reasons", None)
+                if isinstance(rs, list) and rs:
+                    # try extract latest score/strength
+                    try:
+                        last = rs[-1]
+                        score = last.get("score") if isinstance(last, dict) else None
+                        strength = last.get("strength") if isinstance(last, dict) else None
+                        print(f"[{args.symbol.upper()}] debug step={steps} score={score} strength={strength} reasons={rs[-1]}")
+                    except Exception:
+                        print(f"[{args.symbol.upper()}] debug step={steps} reasons(sample)={rs[-1]}")
+        # Finalize summary on full dataset once
+        full_summary, full_trades = simulate_dryrun(df_full, args.symbol.upper(), cfg_path, args.steps, args.balance, force_exit_on_end=args.force_exit_on_end)
+    else:
+        full_summary, full_trades = simulate_dryrun(df_full, args.symbol.upper(), cfg_path, args.steps, args.balance, force_exit_on_end=args.force_exit_on_end)
     if overrides:
         print("\n=== PARAMETER DIPAKAI ===")
         for k, v in overrides.items():

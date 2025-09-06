@@ -330,8 +330,9 @@ def aggregate(
             min_confirms = int(_min_c)
         except Exception:
             min_confirms = None
-        # HANYA demote bila 0 < confirms < min_confirms (jika confirms==0 → pakai gate "tanpa konfirmasi")
-        if isinstance(min_confirms, int) and (confirms > 0) and (confirms < min_confirms):
+        # Demote bila confirms kurang dari min_confirms (termasuk 0),
+        # kecuali caller menyediakan gate khusus no-confirms untuk mengizinkan tanpa demosi.
+        if isinstance(min_confirms, int) and (confirms < min_confirms):
             # Hard demotion bila konfirmasi kurang: maksimal "lemah"
             if strength == "kuat":
                 strength = "cukup"
