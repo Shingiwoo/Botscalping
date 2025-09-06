@@ -266,7 +266,10 @@ def main():
                 agg_keys = {
                     "signal_weights","strength_thresholds","regime_bounds","weight_scale",
                     "sr_penalty","sd_tol_pct","vol_lookback","vol_z_thr","score_gate",
-                    "htf_rules","htf_fallback_discount","weight_scale_nl","min_confirms"
+                    "htf_rules","htf_fallback_discount","weight_scale_nl","min_confirms",
+                    # key baru untuk gate adaptif & bonus konfirmasi
+                    "score_gate_no_confirms","min_strength","min_strength_no_confirms",
+                    "no_confirms_require","confirm_bonus_per","confirm_bonus_max"
                 }
                 agg_block = {k: preset_root[k] for k in agg_keys if k in preset_root}
                 if agg_block:

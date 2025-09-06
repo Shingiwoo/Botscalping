@@ -330,7 +330,8 @@ def aggregate(
             min_confirms = int(_min_c)
         except Exception:
             min_confirms = None
-        if isinstance(min_confirms, int) and confirms < min_confirms:
+        # HANYA demote bila 0 < confirms < min_confirms (jika confirms==0 → pakai gate "tanpa konfirmasi")
+        if isinstance(min_confirms, int) and (confirms > 0) and (confirms < min_confirms):
             # Hard demotion bila konfirmasi kurang: maksimal "lemah"
             if strength == "kuat":
                 strength = "cukup"
@@ -342,7 +343,34 @@ def aggregate(
             if score >= fair:
                 score = max(0.0, fair - 1e-6)
 
-    ok = (score >= float(thresholds.get("score_gate", 0.5))) and (strength in ("cukup", "kuat"))
+    # Bonus skor kecil per konfirmator (opsional, untuk profil agresif)
+    c_bonus = float(thresholds.get("confirm_bonus_per", 0.0))
+    c_bonus_max = float(thresholds.get("confirm_bonus_max", 0.0))
+    if c_bonus > 0.0 and confirms > 0:
+        score = clamp01(score + min(confirms * c_bonus, c_bonus_max))
+
+    # Gate adaptif: lebih ketat bila TANPA konfirmasi
+    def _rank(s: str) -> int:
+        return {"netral": 0, "lemah": 1, "cukup": 2, "kuat": 3}.get(s, 0)
+
+    base_gate = float(thresholds.get("score_gate", 0.55))
+    gate_no_conf = thresholds.get("score_gate_no_confirms", None)
+    min_str_base = thresholds.get("min_strength", "cukup")
+    min_str_no_conf = thresholds.get("min_strength_no_confirms", min_str_base)
+    req_feats = thresholds.get("no_confirms_require", [])
+
+    used_gate = base_gate
+    min_str_used = min_str_base
+    req_ok = True
+    if confirms == 0:
+        if gate_no_conf is not None:
+            used_gate = float(gate_no_conf)
+        min_str_used = min_str_no_conf
+        if isinstance(req_feats, (list, tuple)) and len(req_feats) > 0:
+            # Wajib: fitur-fitur dasar ini harus muncul di breakdown
+            req_ok = all(k in breakdown for k in req_feats)
+
+    ok = (score >= used_gate) and (_rank(strength) >= _rank(min_str_used)) and bool(req_ok)
     return {
         "ok": bool(ok),
         "side": side if ok else None,

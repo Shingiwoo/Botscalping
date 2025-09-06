@@ -407,6 +407,13 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
                 "htf_fallback_discount": agg_cfg.get("htf_fallback_discount", {"D": 0.7, "4h": 0.5}),
                 "weight_scale_nl": agg_cfg.get("weight_scale_nl", {}),
                 "min_confirms": agg_cfg.get("min_confirms", None),
+                # adaptive gate & bonus confirms (new)
+                "score_gate_no_confirms": agg_cfg.get("score_gate_no_confirms", None),
+                "min_strength": agg_cfg.get("min_strength", "cukup"),
+                "min_strength_no_confirms": agg_cfg.get("min_strength_no_confirms", agg_cfg.get("min_strength", "cukup")),
+                "no_confirms_require": agg_cfg.get("no_confirms_require", []),
+                "confirm_bonus_per": agg_cfg.get("confirm_bonus_per", 0.0),
+                "confirm_bonus_max": agg_cfg.get("confirm_bonus_max", 0.0),
             }
             regime_bounds = dict(agg_cfg.get("regime_bounds", {"atr_p1": 0.01, "atr_p2": 0.05, "bbw_q1": 0.01, "bbw_q2": 0.05}))
             sr_penalty = dict(agg_cfg.get("sr_penalty", {"base_pct": 0.6, "k_atr": 0.5}))
