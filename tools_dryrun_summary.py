@@ -43,7 +43,7 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("timestamp").reset_index(drop=True)
     return df
 
-def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_limit: int, balance: float) -> Tuple[Dict[str, Any], pd.DataFrame]:
+def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_limit: int, balance: float, *, force_exit_on_end: bool = False) -> Tuple[Dict[str, Any], pd.DataFrame]:
     df = _normalize_df(df.copy())
 
     # warmup supaya indikator & ML siap
@@ -127,6 +127,10 @@ def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_
         data_map = {symbol: df.iloc[: i + 1].copy()}
         mgr.run_once(data_map, {symbol: balance})
         steps += 1
+    # Optional: force exit any open position to count a trade in shorter runs
+    if force_exit_on_end and trader.pos.side:
+        last_close = float(df['close'].iloc[min(len(df)-1, start_i + steps - 1)])
+        trader._exit_position(price=last_close, reason='force_end')
     elapsed = time.time() - t0
 
     # Ringkasan
@@ -155,6 +159,7 @@ def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_
         "steps_executed": steps,
         "entries": entry_count,
         "exits": exit_count,
+        "open_positions": 1 if trader.pos.side else 0,
         "last_position": trader.pos.side,
         "trades": len(trades),
         "win_rate_pct": round(float(wr), 2),
@@ -184,9 +189,9 @@ def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_
         print(f"[WARN] print last IND failed: {e}")
     return summary, trades_df
 
-def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int, balance: float) -> tuple[dict, pd.DataFrame]:
+def run_dry(symbol: str, csv_path: str, coin_config_path: str, steps_limit: int, balance: float, *, force_exit_on_end: bool = False) -> tuple[dict, pd.DataFrame]:
     df = pd.read_csv(csv_path)
-    return simulate_dryrun(df, symbol, coin_config_path, steps_limit, balance)
+    return simulate_dryrun(df, symbol, coin_config_path, steps_limit, balance, force_exit_on_end=force_exit_on_end)
 
 
 def main():
@@ -215,6 +220,7 @@ def main():
     ap.add_argument("--mc-runs", type=int, default=0, help="Jumlah Monte-Carlo block bootstrap runs (0=off)")
     ap.add_argument("--mc-block", type=int, default=40, help="Ukuran blok bootstrap")
     ap.add_argument("--debug-cfg", action="store_true", help="Tampilkan konfigurasi efektif yang dipakai engine")
+    ap.add_argument("--force-exit-on-end", action="store_true", help="Paksa tutup posisi di bar terakhir agar trade tercatat")
     args = ap.parse_args()
 
     # saran env untuk speed
@@ -391,7 +397,7 @@ def main():
     df_full = pd.read_csv(args.csv)
 
     # 1) Baseline (FULL)
-    full_summary, full_trades = simulate_dryrun(df_full, args.symbol.upper(), cfg_path, args.steps, args.balance)
+    full_summary, full_trades = simulate_dryrun(df_full, args.symbol.upper(), cfg_path, args.steps, args.balance, force_exit_on_end=args.force_exit_on_end)
     if overrides:
         print("\n=== PARAMETER DIPAKAI ===")
         for k, v in overrides.items():

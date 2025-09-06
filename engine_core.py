@@ -191,15 +191,38 @@ def compute_indicators(df: pd.DataFrame, heikin: bool = False) -> pd.DataFrame:
 # Legacy base-signal logic dihapus. Sumber kebenaran sinyal sekarang dari aggregator.
 
 # ===================== AGGREGATOR INTEGRATION =====================
+DEFAULT_AGG: Dict[str, Any] = {
+    "signal_weights": {},
+    "strength_thresholds": {"weak": 0.28, "fair": 0.55, "strong": 0.78},
+    "score_gate": 0.55,
+    "min_strength": "cukup",
+    "score_gate_no_confirms": 0.62,
+    "min_strength_no_confirms": "kuat",
+    "no_confirms_require": [],
+    "confirm_bonus_per": 0.0,
+    "confirm_bonus_max": 0.0,
+    "vol_lookback": 20,
+    "vol_z_thr": 1.8,
+    "sd_tol_pct": 2.0,
+    "htf_rules": [],
+}
+
+
+def _merge_agg_thresholds(partial: Dict[str, Any]) -> Dict[str, Any]:
+    d = dict(DEFAULT_AGG)
+    if isinstance(partial, dict):
+        d.update(partial)
+    return d
+
+
 def _read_agg_from_cfg(coin_cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Ambil blok aggregator dari coin_cfg['_agg'] bila ada.
-    Tidak lagi mewajibkan 'signal_weights' atau 'regime_bounds' karena default tersedia
-    pada jalur make_decision/aggregator. Jika kunci tersebut absen, nilai default akan dipakai.
+    Terima partial config; isi default otomatis.
     """
     agg = (coin_cfg or {}).get("_agg")
     if not isinstance(agg, dict) or not agg:
         return None
-    return cast(Dict[str, Any], agg)
+    return cast(Dict[str, Any], _merge_agg_thresholds(agg))
 
 
 # -----------------------------------------------------

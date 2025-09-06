@@ -14,6 +14,7 @@ from uuid import uuid4
 import pandas as pd
 import numpy as np
 from decimal import getcontext
+from executors.sim_exec import SimExecutor  # DRYRUN executor (no network)
 
 # --- tipe live posisi & helper presisi ---
 @dataclass
@@ -635,6 +636,7 @@ class CoinTrader:
         self.account_guard = account_guard
         self.verbose = verbose or _to_bool(self.config.get('VERBOSE', os.getenv('VERBOSE','0')), False)
         self.exec = exec_client
+        self.sim_exec: Optional[SimExecutor] = None  # set by manager in dryrun
         self._last_seen_len = None            # legacy (tidak dipakai lagi untuk skip)
         self.last_bar_close_ts = None         # <- tambah: jejak bar terakhir (UTC close timestamp)
         self.startup_skip_bars = int(self.config.get('startup_skip_bars', 2))
@@ -917,7 +919,15 @@ class CoinTrader:
         except Exception as e:
             self._log(f"[WARN] set_margin_type({mt}) gagal: {e}")
 
-        margin = max(0.0, available_balance) * max(0.0, risk)
+        # If using SimExecutor, prefer its tracked balance
+        sim_bal = None
+        if self.sim_exec is not None:
+            try:
+                sim_bal = float(self.sim_exec.get_balance(self.symbol))
+            except Exception:
+                sim_bal = None
+        eff_available = float(sim_bal) if sim_bal is not None else max(0.0, available_balance)
+        margin = eff_available * max(0.0, risk)
         if margin <= 0.0:
             self._log(f"SKIP entry: available={available_balance:.4f}, margin=0")
             return 0.0
@@ -973,20 +983,7 @@ class CoinTrader:
             return 0.0
 
         try:
-            # If running without execution client (dryrun), simulate entry locally
-            if not self.exec:
-                fill_price = float(price)
-                self.pos = Position(
-                    side=side,
-                    entry=fill_price,
-                    qty=qty,
-                    sl=sl,
-                    trailing_sl=None,
-                    entry_time=pd.Timestamp.utcnow(),
-                    allow_trailing=False,
-                )
-                self._log(f"ENTRY(SIM) {side} price={price} qty={qty:.6f}")
-            else:
+            if self.exec:
                 cid = f"x-{os.getenv('INSTANCE_ID', 'bot')}-{self.symbol}-{uuid4().hex[:8]}"
                 od = self.exec.market_entry(self.symbol, side_binance, qty, client_id=cid)
                 if not od or not od.get('orderId'):
@@ -1009,6 +1006,34 @@ class CoinTrader:
                     self._log(f"SL protect {'OK' if ok else 'FAIL'} @ {sl}")
                 else:
                     self._log("SKIP SL: sl=None (cek config/indikator)")
+            else:
+                # Simulated entry with SimExecutor if available
+                fill_price = float(price)
+                self.pos = Position(
+                    side=side,
+                    entry=fill_price,
+                    qty=qty,
+                    sl=sl,
+                    trailing_sl=None,
+                    entry_time=pd.Timestamp.utcnow(),
+                    allow_trailing=False,
+                )
+                if self.sim_exec is not None:
+                    # Deduct margin and record open position
+                    try:
+                        before = float(self.sim_exec.get_balance(self.symbol))
+                    except Exception:
+                        before = eff_available
+                    used = safe_div((price * qty), lev) * (1.0 + fee_buf)
+                    try:
+                        self.sim_exec.set_balance(self.symbol, max(0.0, before - used))
+                    except Exception:
+                        pass
+                    try:
+                        self.sim_exec.open_position(self.symbol, side, fill_price, qty, sl=sl)
+                    except Exception:
+                        pass
+                    self._log(f"ENTRY(SIM) {side} price={price} qty={qty:.6f}")
             # Base strength legacy removed; rely on ML strength for mode selection
             b_s = 0.0
             m_s = ml_strength(up_prob, self.pos.side)
@@ -1081,6 +1106,14 @@ class CoinTrader:
                     pass
             except Exception as e:
                 self._log(f"exit close fail: {e}")
+        # Simulated close updates balance with PnL
+        if (not self.exec) and self.sim_exec is not None and self.pos.side and self.pos.qty:
+            try:
+                pnl = self.sim_exec.close_position(self.symbol, float(price))
+                cur = float(self.sim_exec.get_balance(self.symbol))
+                self.sim_exec.set_balance(self.symbol, cur + float(pnl))
+            except Exception:
+                pass
         self._log(f"EXIT {reason} price={price:.6f}")
         self.pos = Position()  # reset
         base_cd = _to_int(self.config.get('cooldown_seconds', DEFAULTS['cooldown_seconds']), DEFAULTS['cooldown_seconds'])
@@ -1275,6 +1308,7 @@ class TradingManager:
             self.traders[s] = CoinTrader(s, merged_cfg, instance_id=instance_id, account_guard=account_guard, verbose=self.verbose, exec_client=self.exec_client)
         self.boot_time = pd.Timestamp.utcnow()
         self._stop = False
+        self.sim_exec: Optional[SimExecutor] = None
         t = threading.Thread(target=self._watch_config, daemon=True)
         t.start()
 
@@ -1382,6 +1416,16 @@ class TradingManager:
                 default_available = exec_client.get_available_balance()
             except Exception:
                 default_available = 0.0
+        # Lazy-init SimExecutor in dryrun if no exec and balances provided
+        try:
+            is_dryrun = bool(int(os.getenv("USE_BACKTEST_ENTRY_LOGIC", os.getenv("DRYRUN_MODE", "1"))))
+        except Exception:
+            is_dryrun = True
+        if self.exec_client is None and is_dryrun and self.sim_exec is None and isinstance(balances, dict):
+            self.sim_exec = SimExecutor(balances)
+            # Attach to traders
+            for tr in self.traders.values():
+                tr.sim_exec = self.sim_exec
         for sym in self.symbols:
             trader = self.traders.get(sym)
             df = data_map.get(sym)
