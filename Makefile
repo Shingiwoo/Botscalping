@@ -57,6 +57,10 @@ apply-presets: setup
 		--preset $(PRESET_15M) \
 		--out $(COINCFG_OUT_15M) --force
 
+	# --- set near-zone massal per TF, setelah apply preset ---
+	$(PY) tools/set_sr_near_zone.py --file $(COINCFG_OUT_15M) --tf 15m --near 0.8 --force
+	$(PY) tools/set_sr_near_zone.py --file $(COINCFG_OUT_5M)  --tf 5m  --near 0.9 --force
+
 audit-15m: setup
 	$(PY) tools/audit_data.py --symbols all --tf 15m --glob "data/*_15m_*.csv" --coin-config $(COINCFG_OUT_15M)
 
@@ -131,4 +135,3 @@ all-5m: apply-presets audit-5m baseline-5m telemetry-5m ab-gates-5m ab-exit-5m r
 
 clean-reports:
 	rm -rf reports/* logs/*
-

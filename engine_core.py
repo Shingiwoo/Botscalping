@@ -432,6 +432,18 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
     # Pastikan indikator dasar tersedia sesuai parameter
     df = ensure_base_indicators(df.copy(), coin_cfg or {})
 
+    # --- sanity switch: FORCE_FLIP (uji cepat jika arah sinyal terbalik)
+    def _maybe_flip(side_in: Optional[str]) -> Optional[str]:
+        try:
+            import os as _os
+            if side_in is None:
+                return side_in
+            if _os.getenv("FORCE_FLIP", "0") == "1":
+                return "SHORT" if str(side_in).upper() == "LONG" else "LONG"
+            return side_in
+        except Exception:
+            return side_in
+
     # 1) Jalur AGGREGATOR (utama jika preset tersedia)
     agg_cfg = _read_agg_from_cfg(coin_cfg)
     if agg_cfg is None:
@@ -600,6 +612,7 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
                 logging.getLogger(__name__).info(
                     f"[{symbol}] AGG OK side={side} score={best['score']:.3f} strength={best['strength']} reasons={best.get('reasons')}"
                 )
+                side = _maybe_flip(side)
                 return side, [{"source": "aggregator", "score": float(best.get("score", 0.0)), "strength": best.get("strength")}]
 
             # No entries – if strong-but-gated, log compact reject reasons when DEBUG_REASONS
@@ -675,6 +688,7 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
             f"[{symbol}] NO-ENTRY base(L={long_base},S={short_base}) macd={macd_now:.4f}/{macd_sig:.4f} "
             f"rsi={rsi_now:.2f} ema={ema_prev:.4f}->{ema_now:.4f} sma={sma_prev:.4f}->{sma_now:.4f}"
         )
+    decision = _maybe_flip(decision)
     return decision, reasons
 
 def htf_trend_ok(side: str, base_df: pd.DataFrame, htf: str = '1h') -> bool:

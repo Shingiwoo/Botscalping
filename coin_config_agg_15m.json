@@ -159,8 +159,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -289,8 +288,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -430,8 +428,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -571,8 +568,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -621,8 +617,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -730,8 +725,7 @@
     "use_htf_filter": 1,
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -879,8 +873,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -983,7 +976,7 @@
       "rejection_shadow_mult": 1.5,
       "rejection_vol_mult": 1.5,
       "false_breakout_atr_mult": 0.45,
-      "near_zone_atr_mult": 0.7
+      "near_zone_atr_mult": 0.8
     },
     "profiles": {
       "conservative": {
@@ -1027,8 +1020,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
@@ -1156,8 +1148,7 @@
     },
     "_agg": {
       "htf_rules": [
-        "4h",
-        "1d"
+        "4h"
       ],
       "strength_thresholds": {
         "weak": 0.28,
