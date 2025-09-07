@@ -2,7 +2,15 @@
 from __future__ import annotations
 import argparse
 import os
+import sys
 import pandas as pd
+
+# Ensure project root on sys.path
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(THIS_DIR, ".."))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 from tools_dryrun_summary import run_dry
 
 
@@ -43,4 +51,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

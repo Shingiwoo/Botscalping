@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, glob, json, os
+import argparse, glob, json, os, sys, pathlib
 from typing import Any, Dict, List
 import pandas as pd
 
-from analysis.data_audit import audit_csv, describe_volatility, write_audit_summary, validate_config_against_audit, write_config_warnings
+# Pastikan project root masuk ke sys.path agar 'analysis' bisa diimport
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from analysis.data_audit import (
+    audit_csv,
+    describe_volatility,
+    write_audit_summary,
+    validate_config_against_audit,
+    write_config_warnings,
+)
 
 
 def _load_coin_config(path: str) -> Dict[str, Any]:
@@ -70,4 +81,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
