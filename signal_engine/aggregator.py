@@ -330,16 +330,23 @@ def aggregate(
             min_confirms = int(_min_c)
         except Exception:
             min_confirms = None
-        # Demote hanya bila 0 < confirms < min_confirms (kasus confirms==0 ditangani oleh gate_no_confirms)
-        if isinstance(min_confirms, int) and (confirms > 0) and (confirms < min_confirms):
-            if strength == "kuat":
-                strength = "cukup"
-            elif strength == "cukup":
-                strength = "lemah"
-            # Clamp score ke bawah batas fair untuk menghindari promosi ulang downstream
+        # Demote bila confirms < min_confirms (termasuk kasus 0 konfirmasi)
+        if isinstance(min_confirms, int) and (confirms < min_confirms):
+            # Turunkan strength sejumlah kekurangan konfirmasi
+            deficit = int(min_confirms - confirms)
+            def _rank_of(s: str) -> int:
+                return {"netral": 0, "lemah": 1, "cukup": 2, "kuat": 3}.get(s, 0)
+            def _label_of(r: int) -> str:
+                return {0: "netral", 1: "lemah", 2: "cukup", 3: "kuat"}.get(max(0, min(3, r)), "netral")
+            new_rank = max(0, _rank_of(strength) - max(1, deficit))
+            strength = _label_of(new_rank)
+            # Clamp score ke bawah batas fair (dan bila deficit>1, dorong di bawah weak)
             th_map = thresholds.get("strength_thresholds", {"weak": 0.25, "fair": 0.50, "strong": 0.75})
             fair = float(th_map.get("fair", 0.50))
-            if score >= fair:
+            weak = float(th_map.get("weak", 0.25))
+            if deficit > 1 and score >= weak:
+                score = max(0.0, weak - 1e-6)
+            elif score >= fair:
                 score = max(0.0, fair - 1e-6)
 
     # Bonus skor kecil per konfirmator (opsional, untuk profil agresif)

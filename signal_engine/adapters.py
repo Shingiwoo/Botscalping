@@ -31,7 +31,11 @@ SMC_ORDERBLOCK = _try([
 ])
 
 SMC_FVG = _try([
+    # Prefer fungsi yang mengembalikan dict agar kompatibel aggregator
     ("indicators.smartmoney.smc.fvg", "detect_fvg"),
+    ("indicators.smartmoney.smc.fvg_luxalgo", "detect_fvg"),
+    # Jika hanya class tersedia, gunakan yang callable terlebih dahulu
+    ("indicators.smartmoney.smc.fvg_luxalgo", "FVGDetectorLuxAlgo"),
     ("indicators.smartmoney.smc.fvg", "FVGDetector"),
 ])
 
