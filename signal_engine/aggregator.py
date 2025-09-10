@@ -87,25 +87,75 @@ def fvg_contra_penalty(has_fvg_contra: bool, max_penalty: float = 0.10) -> float
 
 
 def compute_sc_base(df: pd.DataFrame, side: Side, cfg: Dict[str, Any]) -> Dict[str, Any]:
-    out = {"cross": False, "adx_ok": False, "body_atr_ok": False, "width_atr_ok": False, "rsi_ok": False}
+    """
+    Fallback yang benar-benar menghitung metrik dasar jika SC_API tidak tersedia.
+    - ADX via ta.trend.ADXIndicator bila ada (fallback sederhana bila tidak),
+    - ATR & body/ATR & ATR% window terakhir,
+    - RSI 14 vs band dari cfg (rsi_long_min/max, rsi_short_min/max).
+    """
+    out = {"cross": True, "adx_ok": False, "body_atr_ok": False, "width_atr_ok": False, "rsi_ok": False}
+    # 1) Jika ada SC_API, gunakan—tetapi JANGAN auto-true semua flag
+    if SC_API:
+        try:
+            _ = SC_API(df, cfg)
+            # Anggap SC_API sudah melakukan validasi internal;
+            # namun tetap siapkan fallback lokal agar distribusi skor tidak datar
+        except Exception:
+            pass
+    # 2) Hitung fallback lokal
+    close = float(df["close"].iloc[-1])
+    open_ = float(df["open"].iloc[-1])
+    # high/low digunakan untuk ATR & width
+    body = abs(close - open_)
+    tr = pd.concat([
+        (df["high"] - df["low"]).abs(),
+        (df["high"] - df["close"].shift(1)).abs(),
+        (df["low"] - df["close"].shift(1)).abs(),
+    ], axis=1).max(axis=1)
+    atr_win = int(cfg.get("adx_period", 14))
+    atr_series = tr.rolling(atr_win, min_periods=atr_win).mean()
+    atr_val = float(atr_series.iloc[-1]) if not pd.isna(atr_series.iloc[-1]) else float(tr.tail(atr_win).mean())
+    atr_pct = atr_val / max(1e-9, close)
+
+    # Params dari cfg/preset (fallback ke default wajar)
+    min_atr_pct = float(cfg.get("min_atr_pct", 0.003))
+    max_atr_pct = float(cfg.get("max_atr_pct", 0.03))
+    max_body_atr = float(cfg.get("max_body_atr", 1.6))
+    rsi_p = int(cfg.get("rsi_period", 14))
+    rsi_lmin = float(cfg.get("rsi_long_min", 10))
+    rsi_lmax = float(cfg.get("rsi_long_max", 65))
+    rsi_smin = float(cfg.get("rsi_short_min", 70))
+    rsi_smax = float(cfg.get("rsi_short_max", 90))
+
+    # ADX
+    adx_val = 0.0
     try:
-        if SC_API:
-            res = SC_API(df, cfg)
-            if isinstance(res, dict):
-                out["cross"] = True
-                out["adx_ok"] = True
-                out["body_atr_ok"] = True
-                out["width_atr_ok"] = True
-                out["rsi_ok"] = True
-            else:
-                out["cross"] = True
-                out["adx_ok"] = out["body_atr_ok"] = out["width_atr_ok"] = True
-        else:
-            out["cross"] = True
-            out["adx_ok"] = out["body_atr_ok"] = out["width_atr_ok"] = True
-            out["rsi_ok"] = True
+        from ta.trend import ADXIndicator
+        adx_ind = ADXIndicator(df["high"], df["low"], df["close"], window=atr_win)
+        adx_val = float(adx_ind.adx().iloc[-1])
     except Exception:
-        out["cross"] = False
+        # Fallback adx-like: trend strength relatif terhadap ATR
+        ema_fast = df["close"].ewm(span=max(5, atr_win//2), adjust=False).mean().iloc[-1]
+        ema_slow = df["close"].ewm(span=max(10, atr_win), adjust=False).mean().iloc[-1]
+        adx_val = min(50.0, abs(float(ema_fast - ema_slow)) / max(1e-9, atr_val) * 25.0)
+    adx_thr = float(cfg.get("adx_thresh", 18.0))
+    out["adx_ok"] = bool(adx_val >= adx_thr)
+
+    # Body/ATR & ATR%
+    body_over_atr = body / max(1e-9, atr_val)
+    out["body_atr_ok"] = bool(body_over_atr <= max_body_atr)
+    out["width_atr_ok"] = bool((atr_pct >= min_atr_pct) and (atr_pct <= max_atr_pct))
+
+    # RSI
+    try:
+        from ta.momentum import RSIIndicator
+        rsi_now = float(RSIIndicator(df["close"], window=max(3, rsi_p)).rsi().iloc[-1])
+    except Exception:
+        rsi_now = 50.0
+    if side == "LONG":
+        out["rsi_ok"] = bool(rsi_lmin <= rsi_now <= rsi_lmax)
+    else:
+        out["rsi_ok"] = bool(rsi_smin <= rsi_now <= rsi_smax)
     return out
 
 
@@ -169,6 +219,45 @@ def build_features_from_modules(df: pd.DataFrame, side: Side) -> Dict[str, Any]:
                 }
             except Exception:
                 pass
+    except Exception:
+        pass
+    # ---- Fallback SR ketika modul SMC/* tidak tersedia ----
+    try:
+        price = float(df["close"].iloc[-1])
+        if ("near_support" not in features["sr"]) or ("near_resistance" not in features["sr"]):
+            # bangun level swing
+            if SR_BUILD_CACHE:
+                cache = SR_BUILD_CACHE(df, lb=3, window=300, k=6, recalc_every=10)
+                try:
+                    res_lvls, sup_lvls = cache.get(len(df)-1, ([], []))
+                except Exception:
+                    res_lvls, sup_lvls = ([], [])
+            else:
+                res_lvls, sup_lvls = ([], [])
+            # toleransi ATR adaptif berdasar regime
+            from .regime import compute_vol_metrics, classify_regime
+            vol = compute_vol_metrics(df, lookback=20)
+            _ = classify_regime(vol.get("atr_pct", 0.0), vol.get("bb_width", 0.0), {"atr_p1":0.01,"atr_p2":0.05,"bbw_q1":0.01,"bbw_q2":0.05})
+            atr_val = float((df["high"] - df["low"]).rolling(14).mean().iloc[-1]) if len(df) >= 14 else float((df["high"] - df["low"]).mean())
+            if SR_NEAR and atr_val > 0:
+                if "near_support" not in features["sr"]:
+                    try:
+                        features["sr"]["near_support"] = bool(SR_NEAR(price, sup_lvls, float(atr_val), _))
+                    except Exception:
+                        pass
+                if "near_resistance" not in features["sr"]:
+                    try:
+                        features["sr"]["near_resistance"] = bool(SR_NEAR(price, res_lvls, float(atr_val), _))
+                    except Exception:
+                        pass
+        # breakout/retest sederhana (swing 20 bar)
+        if len(df) >= 2:
+            rh = float(df["high"].rolling(20).max().iloc[-2]) if len(df) > 20 else float(df["high"].iloc[:-1].max())
+            rl = float(df["low"].rolling(20).min().iloc[-2])  if len(df) > 20 else float(df["low"].iloc[:-1].min())
+            if side == "LONG" and price > rh:
+                features["sr"]["breakout_same_dir"] = True
+            if side == "SHORT" and price < rl:
+                features["sr"]["breakout_same_dir"] = True
     except Exception:
         pass
     return features

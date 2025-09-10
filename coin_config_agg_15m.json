@@ -154,7 +154,8 @@
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -167,6 +168,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -180,7 +183,8 @@
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
-    }
+    },
+    "min_confirms_quant": 1
   },
   "ALGOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -283,7 +287,8 @@
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -296,6 +301,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -309,7 +316,9 @@
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
-    }
+    },
+    "weak_tp_roi_pct": 0.018,
+    "min_confirms_quant": 1
   },
   "DOGEUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -423,7 +432,8 @@
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -436,6 +446,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -449,7 +461,8 @@
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
-    }
+    },
+    "min_confirms_quant": 1
   },
   "DOTUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -563,7 +576,8 @@
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -576,6 +590,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -589,7 +605,8 @@
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
-    }
+    },
+    "min_confirms_quant": 1
   },
   "SYMBOL_DEFAULTS": {
     "adopt_manual_positions": 0,
@@ -625,6 +642,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -651,13 +670,15 @@
         },
         "sl_atr_mult": 1.8,
         "be_trigger_pct": 0.0045,
+        "be_min_gap_pct": 0.0005,
         "trailing_trigger": 0.006,
         "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
       }
-    }
+    },
+    "min_confirms_quant": 1
   },
   "TURBOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -733,6 +754,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -759,13 +782,16 @@
         },
         "sl_atr_mult": 1.8,
         "be_trigger_pct": 0.0045,
+        "be_min_gap_pct": 0.0005,
         "trailing_trigger": 0.006,
         "trailing_step": 0.0032,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
       }
-    }
+    },
+    "weak_tp_roi_pct": 0.018,
+    "min_confirms_quant": 1
   },
   "XRPUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -868,7 +894,8 @@
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -881,6 +908,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -894,7 +923,8 @@
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
-    }
+    },
+    "min_confirms_quant": 1
   },
   "BTCUSDT": {
     "SLIPPAGE_PCT": 0.0008,
@@ -976,7 +1006,7 @@
       "rejection_shadow_mult": 1.5,
       "rejection_vol_mult": 1.5,
       "false_breakout_atr_mult": 0.45,
-      "near_zone_atr_mult": 0.8
+      "near_zone_atr_mult": 0.7
     },
     "profiles": {
       "conservative": {
@@ -1015,7 +1045,8 @@
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -1028,6 +1059,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -1041,7 +1074,8 @@
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
-    }
+    },
+    "min_confirms_quant": 1
   },
   "ETHUSDT": {
     "SLIPPAGE_PCT": 0.001,
@@ -1143,7 +1177,8 @@
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
-        "use_htf_filter": 1
+        "use_htf_filter": 1,
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -1156,6 +1191,8 @@
         "strong": 0.78
       },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": [
         "adx",
@@ -1169,6 +1206,7 @@
       "sd_tol_pct": 2.0,
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
-    }
+    },
+    "min_confirms_quant": 1
   }
 }

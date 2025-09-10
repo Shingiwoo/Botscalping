@@ -31,6 +31,23 @@
     "score_gate": 0.7
   },
   "AGGRESSIVE_5m": {
+    "_defaults": { "weak_tp_roi_pct": 0.016 },
+    "profiles": {
+      "aggressive": {
+        "min_atr_pct": 0.0030,
+        "max_atr_pct": 0.020,
+        "max_body_atr": 1.35,
+        "filters": { "atr": true, "body": true, "max_body_over_atr": 1.35 },
+        "sl_atr_mult": 1.50,
+        "be_trigger_pct": 0.0035,
+        "be_min_gap_pct": 0.0005,
+        "trailing_trigger": 0.0055,
+        "trailing_step": 0.0030,
+        "use_sr_filter": true,
+        "sr_near_pct": 0.70,
+        "use_htf_filter": 1
+      }
+    },
     "profiles.aggressive": {
       "min_atr_pct": 0.0030,
       "max_atr_pct": 0.020,
@@ -61,10 +78,29 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
     }
   },
   "AGGRESSIVE_15m": {
+    "_defaults": { "weak_tp_roi_pct": 0.018 },
+    "profiles": {
+      "aggressive": {
+        "min_atr_pct": 0.0035,
+        "max_atr_pct": 0.022,
+        "max_body_atr": 1.45,
+        "filters": { "atr": true, "body": true, "max_body_over_atr": 1.45 },
+        "sl_atr_mult": 1.80,
+        "be_trigger_pct": 0.0045,
+        "be_min_gap_pct": 0.0005,
+        "trailing_trigger": 0.0060,
+        "trailing_step": 0.0032,
+        "use_sr_filter": true,
+        "sr_near_pct": 0.70,
+        "use_htf_filter": 1
+      }
+    },
     "profiles.aggressive": {
       "min_atr_pct": 0.0035,
       "max_atr_pct": 0.022,
@@ -86,6 +122,8 @@
       "htf_rules": ["4h"],
       "strength_thresholds": { "weak": 0.28, "fair": 0.55, "strong": 0.78 },
       "score_gate": 0.58,
+      "min_confirms": 1,
+      "min_confirms_quant": 1,
       "score_gate_no_confirms": 0.68,
       "no_confirms_require": ["adx","width_atr","body_atr"],
       "confirm_bonus_per": 0.04,
@@ -96,5 +134,16 @@
       "min_strength": "cukup",
       "min_strength_no_confirms": "kuat"
     }
+  }
+  ,
+  "ADAUSDT_15m": {
+    "sl_atr_mult": 1.5,
+    "sl_pct": 0.008,
+    "trailing_trigger": 0.007,
+    "trailing_step": 0.0035,
+    "be_trigger_pct": 0.006,
+    "score_gate": 0.50,
+    "min_confirms": 1,
+    "_agg": {"htf_rules": ["1h","4h"]}
   }
 }

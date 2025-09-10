@@ -155,7 +155,7 @@
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1,
-        "be_trigger_r": 0.35
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -181,8 +181,11 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
+    },
+    "min_confirms_quant": 2
   },
   "ALGOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -286,7 +289,7 @@
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1,
-        "be_trigger_r": 0.35
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -312,8 +315,12 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
+    },
+    "weak_tp_roi_pct": 0.016,
+    "min_confirms_quant": 2
   },
   "DOGEUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -428,7 +435,7 @@
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1,
-        "be_trigger_r": 0.35
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -454,8 +461,11 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
+    },
+    "min_confirms_quant": 2
   },
   "DOTUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -570,7 +580,7 @@
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1,
-        "be_trigger_r": 0.35
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -596,8 +606,11 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
+    },
+    "min_confirms_quant": 2
   },
   "SYMBOL_DEFAULTS": {
     "adopt_manual_positions": 0,
@@ -646,7 +659,9 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
     },
     "profiles": {
       "aggressive": {
@@ -660,14 +675,15 @@
         },
         "sl_atr_mult": 1.5,
         "be_trigger_pct": 0.0035,
-        "be_trigger_r": 0.35,
+        "be_min_gap_pct": 0.0005,
         "trailing_trigger": 0.0055,
         "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
       }
-    }
+    },
+    "min_confirms_quant": 2
   },
   "TURBOUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -756,7 +772,9 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
     },
     "profiles": {
       "aggressive": {
@@ -770,14 +788,16 @@
         },
         "sl_atr_mult": 1.5,
         "be_trigger_pct": 0.0035,
-        "be_trigger_r": 0.35,
+        "be_min_gap_pct": 0.0005,
         "trailing_trigger": 0.0055,
         "trailing_step": 0.003,
         "use_sr_filter": true,
         "sr_near_pct": 0.7,
         "use_htf_filter": 1
       }
-    }
+    },
+    "weak_tp_roi_pct": 0.016,
+    "min_confirms_quant": 2
   },
   "XRPUSDT": {
     "SLIPPAGE_PCT": 0.003,
@@ -881,7 +901,7 @@
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1,
-        "be_trigger_r": 0.35
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -907,8 +927,11 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
+    },
+    "min_confirms_quant": 2
   },
   "BTCUSDT": {
     "SLIPPAGE_PCT": 0.0008,
@@ -1030,7 +1053,7 @@
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1,
-        "be_trigger_r": 0.35
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -1056,8 +1079,11 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
+    },
+    "min_confirms_quant": 2
   },
   "ETHUSDT": {
     "SLIPPAGE_PCT": 0.001,
@@ -1160,7 +1186,7 @@
         "sr_near_pct": 0.7,
         "score_gate": 0.55,
         "use_htf_filter": 1,
-        "be_trigger_r": 0.35
+        "be_min_gap_pct": 0.0005
       }
     },
     "_agg": {
@@ -1186,7 +1212,10 @@
       "vol_z_thr": 1.8,
       "sd_tol_pct": 1.7,
       "min_strength": "cukup",
-      "min_strength_no_confirms": "kuat"
-    }
+      "min_strength_no_confirms": "kuat",
+      "min_confirms": 2,
+      "min_confirms_quant": 2
+    },
+    "min_confirms_quant": 2
   }
 }

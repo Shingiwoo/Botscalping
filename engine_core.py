@@ -515,9 +515,15 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
                 vol_ok = ("vol_confirm" in bd)
                 return int(adx_ok) + int(width_atr_ok) + int(body_atr_ok) + int(vol_ok)
 
-            # Determine TF from sr_mtf.chart_tf (fallback 15m)
-            tf_txt = str(((coin_cfg.get("sr_mtf") or {}).get("chart_tf", "15m")).lower())
-            require_confirms = 2 if ("5m" in tf_txt or "5min" in tf_txt) else 1
+            # Determine min quantitative confirms required
+            # Prefer per-symbol config 'min_confirms_quant'; fallback to TF rule (5m=2, else=1)
+            try:
+                require_confirms = int(coin_cfg.get("min_confirms_quant", 0))
+            except Exception:
+                require_confirms = 0
+            if not require_confirms:
+                tf_txt = str(((coin_cfg.get("sr_mtf") or {}).get("chart_tf", "15m")).lower())
+                require_confirms = 2 if ("5m" in tf_txt or "5min" in tf_txt) else 1
 
             def _used_gate_for(confirms: int) -> float:
                 base_gate = float(thresholds.get("score_gate", 0.55))

@@ -22,7 +22,7 @@ AGG_KEYS = {
 }
 
 
-def _load_preset_blocks(params_path: str, preset_key: str) -> tuple[Dict[str, Any], Dict[str, Any]]:
+def _load_preset_blocks(params_path: str, preset_key: str) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     with open(params_path, "r", encoding="utf-8") as f:
         root = json.load(f)
     preset = root.get(preset_key)
@@ -43,7 +43,11 @@ def _load_preset_blocks(params_path: str, preset_key: str) -> tuple[Dict[str, An
         profile_agg = preset["profiles"]["aggressive"]
     elif isinstance(preset.get("profiles.aggressive"), dict):
         profile_agg = preset["profiles.aggressive"]
-    return agg_block or {}, profile_agg or {}
+    # defaults block (e.g., weak_tp_roi_pct)
+    defaults = {}
+    if isinstance(preset.get("_defaults"), dict):
+        defaults = preset["_defaults"]
+    return (agg_block or {}), (profile_agg or {}), (defaults or {})
 
 
 def main():
@@ -87,7 +91,7 @@ def main():
     except Exception:
         pass
 
-    agg_cfg, profile_agg = _load_preset_blocks(args.params, args.preset)
+    agg_cfg, profile_agg, defaults = _load_preset_blocks(args.params, args.preset)
     # Validate presets if possible
     try:
         import jsonschema  # type: ignore
@@ -102,6 +106,14 @@ def main():
         agg_cfg = {}
     if not isinstance(profile_agg, dict):
         profile_agg = {}
+
+    def deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+        for k, v in (b or {}).items():
+            if isinstance(v, dict) and isinstance(a.get(k), dict):
+                deep_merge(a[k], v)
+            else:
+                a[k] = deepcopy(v)
+        return a
 
     updated = 0
     for sym, sym_cfg in list(cfg.items()):
@@ -121,14 +133,26 @@ def main():
         # Ensure and deep-merge _agg
         sym_cfg.setdefault("_agg", {})
         if isinstance(agg_cfg, dict) and agg_cfg:
-            _deep_update(sym_cfg["_agg"], agg_cfg)
+            deep_merge(sym_cfg["_agg"], agg_cfg)
         # Ensure and deep-merge profiles.aggressive
         if profile_agg:
             profiles = sym_cfg.setdefault("profiles", {}) if isinstance(sym_cfg.get("profiles"), dict) else sym_cfg.setdefault("profiles", {})
             aggr = profiles.setdefault("aggressive", {})
-            _deep_update(aggr, profile_agg)
+            deep_merge(aggr, profile_agg)
             profiles["aggressive"] = aggr
             sym_cfg["profiles"] = profiles
+        # apply lightweight _defaults if keys missing on symbol (e.g. weak_tp_roi_pct)
+        for k, v in (defaults or {}).items():
+            if k not in sym_cfg:
+                sym_cfg[k] = v
+        # inject engine gate: min_confirms_quant from preset _agg if absent
+        if "min_confirms_quant" not in sym_cfg:
+            try:
+                mcq = int((agg_cfg or {}).get("min_confirms_quant", 0))
+            except Exception:
+                mcq = 0
+            if mcq:
+                sym_cfg["min_confirms_quant"] = mcq
         cfg[sym] = sym_cfg
         updated += 1
 
