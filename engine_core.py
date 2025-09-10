@@ -488,6 +488,17 @@ def make_decision(df: pd.DataFrame, symbol: str, coin_cfg: dict, ml_up_prob: flo
                 "no_confirms_require": agg_cfg.get("no_confirms_require", []),
                 "confirm_bonus_per": agg_cfg.get("confirm_bonus_per", 0.0),
                 "confirm_bonus_max": agg_cfg.get("confirm_bonus_max", 0.0),
+                # pass-through base filter thresholds so compute_sc_base can align with coin config
+                "min_atr_pct": coin_cfg.get("min_atr_pct", 0.003),
+                "max_atr_pct": coin_cfg.get("max_atr_pct", 0.03),
+                "max_body_atr": coin_cfg.get("max_body_atr", 1.6),
+                "rsi_period": coin_cfg.get("rsi_period", 14),
+                "rsi_long_min": coin_cfg.get("rsi_long_min", 40),
+                "rsi_long_max": coin_cfg.get("rsi_long_max", 70),
+                "rsi_short_min": coin_cfg.get("rsi_short_min", 30),
+                "rsi_short_max": coin_cfg.get("rsi_short_max", 60),
+                "adx_period": coin_cfg.get("adx_period", 14),
+                "adx_thresh": coin_cfg.get("adx_thresh", 18.0),
             }
             regime_bounds = dict(agg_cfg.get("regime_bounds", {"atr_p1": 0.01, "atr_p2": 0.05, "bbw_q1": 0.01, "bbw_q2": 0.05}))
             sr_penalty = dict(agg_cfg.get("sr_penalty", {"base_pct": 0.6, "k_atr": 0.5}))

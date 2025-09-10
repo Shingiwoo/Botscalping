@@ -119,7 +119,7 @@
     "early_stop_enabled": 1,
     "early_stop_bars": 2,
     "_agg": {
-      "htf_rules": ["4h"],
+      "htf_rules": ["1h","4h"],
       "strength_thresholds": { "weak": 0.28, "fair": 0.55, "strong": 0.78 },
       "score_gate": 0.58,
       "min_confirms": 1,

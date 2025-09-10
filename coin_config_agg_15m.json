@@ -160,6 +160,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -293,6 +294,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -438,6 +440,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -582,6 +585,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -634,6 +638,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -746,6 +751,7 @@
     "use_htf_filter": 1,
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -900,6 +906,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -1051,6 +1058,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {
@@ -1183,6 +1191,7 @@
     },
     "_agg": {
       "htf_rules": [
+        "1h",
         "4h"
       ],
       "strength_thresholds": {

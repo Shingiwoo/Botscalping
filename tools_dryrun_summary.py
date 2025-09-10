@@ -82,9 +82,16 @@ def simulate_dryrun(df: pd.DataFrame, symbol: str, coin_config_path: str, steps_
     warmup = max(300, min_train + 10)
     start_i = min(warmup, len(df) - 1)
 
-    mgr = nrt.TradingManager(coin_config_path, [symbol])
+    mgr = nrt.TradingManager(coin_config_path, [symbol], verbose=(os.getenv("DRYRUN_VERBOSE","0").strip()=="1"))
     trader = mgr.traders[symbol]
-    trader._log = lambda *args, **kwargs: None  # matikan log biar cepat
+    # Matikan log untuk speed kecuali user minta verbose
+    if os.getenv("DRYRUN_VERBOSE", "0").strip() != "1":
+        trader._log = lambda *args, **kwargs: None
+    else:
+        try:
+            trader.verbose = True
+        except Exception:
+            pass
 
     # Pre-fit ML sekali di warmup (opsional, untuk speed)
     try:
